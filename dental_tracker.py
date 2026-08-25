@@ -301,7 +301,10 @@ st.set_page_config(
     page_icon="🦷",
     layout="wide"
     
-    st.markdown("""
+    
+)
+
+st.markdown("""
 <style>
 div.stButton > button[kind="primary"] {
     background-color: #3B82F6;
@@ -316,7 +319,6 @@ div.stButton > button[kind="primary"]:hover {
 }
 </style>
 """, unsafe_allow_html=True)
-)
 
 initialize_users_database()
 initialize_session_state()
