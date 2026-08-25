@@ -1,16 +1,15 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
+import streamlit as st
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
+import pandas as pd
+
+DB_NAME = "dental_tracker.db"
 
 
 # ============================================================
 # DATABASE
 # ============================================================
-
-DB_NAME = "dental_tracker.db"
-
 
 def connect_db():
     return sqlite3.connect(DB_NAME)
@@ -64,8 +63,8 @@ def initialize_database():
 
 def calculate_due_date(last_visit, months):
     try:
-        date = datetime.strptime(last_visit, "%Y-%m-%d")
-        due = date + relativedelta(months=months)
+        parsed = datetime.strptime(last_visit, "%Y-%m-%d")
+        due = parsed + relativedelta(months=months)
         return due.strftime("%Y-%m-%d")
     except ValueError:
         return ""
@@ -74,755 +73,673 @@ def calculate_due_date(last_visit, months):
 def days_until(date_string):
     try:
         due = datetime.strptime(date_string, "%Y-%m-%d").date()
-        today = datetime.today().date()
-        return (due - today).days
-    except ValueError:
+        return (due - date.today()).days
+    except (ValueError, TypeError):
         return 99999
 
 
 # ============================================================
-# MAIN APPLICATION
+# DATABASE HELPERS
 # ============================================================
 
-class DentalTracker:
+def get_patients(search=""):
+    conn = connect_db()
+    cursor = conn.cursor()
 
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Dental Patient Tracker")
-        self.root.geometry("1100x700")
-
-        self.selected_patient_id = None
-
-        self.create_interface()
-        self.load_patients()
-        self.update_dashboard()
-
-    # --------------------------------------------------------
-    # INTERFACE
-    # --------------------------------------------------------
-
-    def create_interface(self):
-
-        title = tk.Label(
-            self.root,
-            text="Dental Patient Tracker",
-            font=("Arial", 24, "bold")
-        )
-        title.pack(pady=15)
-
-        # Dashboard
-        dashboard = tk.Frame(self.root)
-        dashboard.pack(fill="x", padx=20, pady=5)
-
-        self.overdue_label = tk.Label(
-            dashboard,
-            text="Overdue: 0",
-            font=("Arial", 14)
-        )
-        self.overdue_label.pack(side="left", padx=30)
-
-        self.week_label = tk.Label(
-            dashboard,
-            text="Due this week: 0",
-            font=("Arial", 14)
-        )
-        self.week_label.pack(side="left", padx=30)
-
-        self.month_label = tk.Label(
-            dashboard,
-            text="Due this month: 0",
-            font=("Arial", 14)
-        )
-        self.month_label.pack(side="left", padx=30)
-
-        # Search
-        search_frame = tk.Frame(self.root)
-        search_frame.pack(fill="x", padx=20, pady=10)
-
-        tk.Label(
-            search_frame,
-            text="Search:"
-        ).pack(side="left")
-
-        self.search_entry = tk.Entry(search_frame, width=30)
-        self.search_entry.pack(side="left", padx=10)
-
-        tk.Button(
-            search_frame,
-            text="Search",
-            command=self.search_patients
-        ).pack(side="left")
-
-        tk.Button(
-            search_frame,
-            text="Show All",
-            command=self.load_patients
-        ).pack(side="left", padx=5)
-
-        # Main area
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill="both", expand=True, padx=20, pady=10)
-
-        # ----------------------------------------------------
-        # LEFT: PATIENT LIST
-        # ----------------------------------------------------
-
-        left_frame = tk.Frame(main_frame)
-        left_frame.pack(side="left", fill="y", padx=(0, 10))
-
-        tk.Label(
-            left_frame,
-            text="Patients",
-            font=("Arial", 16, "bold")
-        ).pack()
-
-        self.patient_list = tk.Listbox(
-            left_frame,
-            width=25,
-            height=25
-        )
-        self.patient_list.pack(fill="y", expand=True)
-
-        self.patient_list.bind(
-            "<<ListboxSelect>>",
-            self.patient_selected
-        )
-
-        button_frame = tk.Frame(left_frame)
-        button_frame.pack(pady=10)
-
-        tk.Button(
-            button_frame,
-            text="New Patient",
-            command=self.new_patient
-        ).pack(side="left", padx=3)
-
-        tk.Button(
-            button_frame,
-            text="Delete",
-            command=self.delete_patient
-        ).pack(side="left", padx=3)
-
-        # ----------------------------------------------------
-        # RIGHT: PATIENT DETAILS
-        # ----------------------------------------------------
-
-        right_frame = tk.Frame(main_frame)
-        right_frame.pack(
-            side="left",
-            fill="both",
-            expand=True
-        )
-
-        self.patient_title = tk.Label(
-            right_frame,
-            text="Select a patient",
-            font=("Arial", 18, "bold")
-        )
-        self.patient_title.pack(anchor="w")
-
-        # Treatment needs
-        tk.Label(
-            right_frame,
-            text="Restorative Needs",
-            font=("Arial", 15, "bold")
-        ).pack(anchor="w", pady=(20, 5))
-
-        columns = (
-            "tooth",
-            "treatment",
-            "priority",
-            "status"
-        )
-
-        self.treatment_tree = ttk.Treeview(
-            right_frame,
-            columns=columns,
-            show="headings",
-            height=8
-        )
-
-        headings = {
-            "tooth": "Tooth",
-            "treatment": "Treatment",
-            "priority": "Priority",
-            "status": "Status"
-        }
-
-        for column in columns:
-            self.treatment_tree.heading(
-                column,
-                text=headings[column]
-            )
-
-        self.treatment_tree.pack(fill="x")
-
-        treatment_buttons = tk.Frame(right_frame)
-        treatment_buttons.pack(pady=5)
-
-        tk.Button(
-            treatment_buttons,
-            text="Add Treatment",
-            command=self.add_treatment
-        ).pack(side="left", padx=3)
-
-        tk.Button(
-            treatment_buttons,
-            text="Edit Treatment",
-            command=self.edit_treatment
-        ).pack(side="left", padx=3)
-
-        tk.Button(
-            treatment_buttons,
-            text="Delete Treatment",
-            command=self.delete_treatment
-        ).pack(side="left", padx=3)
-
-        # Recall
-        tk.Label(
-            right_frame,
-            text="Recall",
-            font=("Arial", 15, "bold")
-        ).pack(anchor="w", pady=(20, 5))
-
-        recall_columns = (
-            "type",
-            "interval",
-            "last_visit",
-            "next_due",
-            "status"
-        )
-
-        self.recall_tree = ttk.Treeview(
-            right_frame,
-            columns=recall_columns,
-            show="headings",
-            height=5
-        )
-
-        recall_headings = {
-            "type": "Recall Type",
-            "interval": "Interval",
-            "last_visit": "Last Visit",
-            "next_due": "Next Due",
-            "status": "Status"
-        }
-
-        for column in recall_columns:
-            self.recall_tree.heading(
-                column,
-                text=recall_headings[column]
-            )
-
-        self.recall_tree.pack(fill="x")
-
-        recall_buttons = tk.Frame(right_frame)
-        recall_buttons.pack(pady=5)
-
-        tk.Button(
-            recall_buttons,
-            text="Add Recall",
-            command=self.add_recall
-        ).pack(side="left", padx=3)
-
-        tk.Button(
-            recall_buttons,
-            text="Edit Recall",
-            command=self.edit_recall
-        ).pack(side="left", padx=3)
-
-        tk.Button(
-            recall_buttons,
-            text="Delete Recall",
-            command=self.delete_recall
-        ).pack(side="left", padx=3)
-
-    # ========================================================
-    # PATIENTS
-    # ========================================================
-
-    def load_patients(self):
-
-        self.patient_list.delete(0, tk.END)
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
+    if search.strip():
         cursor.execute("""
-            SELECT id, patient_id
+            SELECT id, patient_id, notes
+            FROM patients
+            WHERE patient_id LIKE ?
+            ORDER BY patient_id
+        """, (f"%{search.strip()}%",))
+    else:
+        cursor.execute("""
+            SELECT id, patient_id, notes
             FROM patients
             ORDER BY patient_id
         """)
 
-        self.patient_data = cursor.fetchall()
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
-        conn.close()
 
-        for patient in self.patient_data:
-            self.patient_list.insert(
-                tk.END,
-                patient[1]
-            )
+def get_treatments(patient_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, tooth, treatment, priority, status, notes
+        FROM treatment_needs
+        WHERE patient_id = ?
+        ORDER BY id
+    """, (patient_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
-    def search_patients(self):
 
-        search = self.search_entry.get().strip()
+def get_recalls(patient_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, recall_type, interval_months, last_visit, next_due, status
+        FROM recalls
+        WHERE patient_id = ?
+        ORDER BY next_due
+    """, (patient_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
 
-        self.patient_list.delete(0, tk.END)
 
-        conn = connect_db()
-        cursor = conn.cursor()
+def get_dashboard_counts():
+    conn = connect_db()
+    cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT id, patient_id
-            FROM patients
-            WHERE patient_id LIKE ?
-            ORDER BY patient_id
-        """, (f"%{search}%",))
+    cursor.execute("""
+        SELECT next_due
+        FROM recalls
+        WHERE status NOT IN ('Completed', 'Scheduled')
+    """)
+    recalls = cursor.fetchall()
+    conn.close()
 
-        self.patient_data = cursor.fetchall()
+    overdue = 0
+    due_week = 0
+    due_month = 0
 
-        conn.close()
+    for (next_due,) in recalls:
+        days = days_until(next_due)
 
-        for patient in self.patient_data:
-            self.patient_list.insert(
-                tk.END,
-                patient[1]
-            )
+        if days < 0:
+            overdue += 1
+        elif days <= 7:
+            due_week += 1
+        elif days <= 30:
+            due_month += 1
 
-    def patient_selected(self, event):
+    return overdue, due_week, due_month
 
-        selection = self.patient_list.curselection()
 
-        if not selection:
-            return
+def patient_exists(patient_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id FROM patients WHERE patient_id = ?",
+        (patient_id,)
+    )
+    result = cursor.fetchone()
+    conn.close()
+    return result is not None
 
-        index = selection[0]
 
-        self.selected_patient_id = self.patient_data[index][0]
-        patient_identifier = self.patient_data[index][1]
+# ============================================================
+# SESSION STATE
+# ============================================================
 
-        self.patient_title.config(
-            text=f"Patient {patient_identifier}"
-        )
+def initialize_session_state():
+    defaults = {
+        "selected_patient_id": None,
+        "selected_treatment_id": None,
+        "selected_recall_id": None,
+        "show_add_patient": False,
+        "show_treatment_form": False,
+        "show_recall_form": False,
+        "editing_treatment": False,
+        "editing_recall": False,
+    }
 
-        self.load_treatments()
-        self.load_recalls()
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-    def new_patient(self):
 
-        window = tk.Toplevel(self.root)
-        window.title("New Patient")
-        window.geometry("350x200")
+# ============================================================
+# PAGE CONFIG
+# ============================================================
 
-        tk.Label(
-            window,
-            text="Internal Patient ID"
-        ).pack(pady=10)
+st.set_page_config(
+    page_title="Dental Patient Tracker",
+    page_icon="🦷",
+    layout="wide"
+)
 
-        entry = tk.Entry(window)
-        entry.pack()
+initialize_database()
+initialize_session_state()
 
-        def save():
+st.title("Dental Patient Tracker")
 
-            patient_id = entry.get().strip()
 
-            if not patient_id:
-                messagebox.showerror(
-                    "Error",
-                    "Enter a patient ID."
-                )
-                return
+# ============================================================
+# DASHBOARD
+# ============================================================
 
+overdue, due_week, due_month = get_dashboard_counts()
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.metric("Overdue", overdue)
+
+with col2:
+    st.metric("Due this week", due_week)
+
+with col3:
+    st.metric("Due this month", due_month)
+
+st.divider()
+
+
+# ============================================================
+# SEARCH
+# ============================================================
+
+search = st.text_input(
+    "Search patients",
+    placeholder="Enter internal patient ID..."
+)
+
+patients = get_patients(search)
+
+
+# ============================================================
+# NEW PATIENT
+# ============================================================
+
+with st.expander("New Patient", expanded=st.session_state.show_add_patient):
+    patient_identifier = st.text_input(
+        "Internal Patient ID",
+        key="new_patient_identifier"
+    )
+
+    if st.button("Save Patient", type="primary"):
+        patient_identifier = patient_identifier.strip()
+
+        if not patient_identifier:
+            st.error("Enter a patient ID.")
+        elif patient_exists(patient_identifier):
+            st.error("That patient ID already exists.")
+        else:
             conn = connect_db()
             cursor = conn.cursor()
-
-            try:
-                cursor.execute("""
-                    INSERT INTO patients (patient_id)
-                    VALUES (?)
-                """, (patient_id,))
-
-                conn.commit()
-
-            except sqlite3.IntegrityError:
-                messagebox.showerror(
-                    "Error",
-                    "That patient ID already exists."
-                )
-                conn.close()
-                return
-
+            cursor.execute(
+                "INSERT INTO patients (patient_id) VALUES (?)",
+                (patient_identifier,)
+            )
+            conn.commit()
+            new_id = cursor.lastrowid
             conn.close()
 
-            window.destroy()
+            st.session_state.selected_patient_id = new_id
+            st.success("Patient added.")
+            st.rerun()
 
-            self.load_patients()
-            self.update_dashboard()
 
-        tk.Button(
-            window,
-            text="Save",
-            command=save
-        ).pack(pady=20)
+# ============================================================
+# MAIN LAYOUT
+# ============================================================
 
-    def delete_patient(self):
+left, right = st.columns([1, 3])
 
-        if not self.selected_patient_id:
-            return
 
-        confirm = messagebox.askyesno(
+# ============================================================
+# LEFT: PATIENT LIST
+# ============================================================
+
+with left:
+    st.subheader("Patients")
+
+    if not patients:
+        st.info("No patients found.")
+    else:
+        for db_id, patient_identifier, _ in patients:
+            selected = db_id == st.session_state.selected_patient_id
+
+            if st.button(
+                patient_identifier,
+                key=f"patient_{db_id}",
+                use_container_width=True,
+                type="primary" if selected else "secondary"
+            ):
+                st.session_state.selected_patient_id = db_id
+                st.session_state.selected_treatment_id = None
+                st.session_state.selected_recall_id = None
+                st.session_state.show_treatment_form = False
+                st.session_state.show_recall_form = False
+                st.rerun()
+
+    st.divider()
+
+    if st.session_state.selected_patient_id:
+        if st.button(
             "Delete Patient",
-            "Delete this patient and their workflow data?"
+            use_container_width=True
+        ):
+            st.session_state.confirm_delete_patient = True
+
+        if st.session_state.get("confirm_delete_patient", False):
+            st.warning("Delete this patient and their workflow data?")
+
+            confirm_col, cancel_col = st.columns(2)
+
+            with confirm_col:
+                if st.button("Yes, Delete", type="primary"):
+                    patient_id = st.session_state.selected_patient_id
+
+                    conn = connect_db()
+                    cursor = conn.cursor()
+
+                    cursor.execute(
+                        "DELETE FROM treatment_needs WHERE patient_id = ?",
+                        (patient_id,)
+                    )
+                    cursor.execute(
+                        "DELETE FROM recalls WHERE patient_id = ?",
+                        (patient_id,)
+                    )
+                    cursor.execute(
+                        "DELETE FROM patients WHERE id = ?",
+                        (patient_id,)
+                    )
+
+                    conn.commit()
+                    conn.close()
+
+                    st.session_state.selected_patient_id = None
+                    st.session_state.confirm_delete_patient = False
+                    st.rerun()
+
+            with cancel_col:
+                if st.button("Cancel"):
+                    st.session_state.confirm_delete_patient = False
+                    st.rerun()
+
+
+# ============================================================
+# RIGHT: PATIENT DETAILS
+# ============================================================
+
+with right:
+    selected_patient_id = st.session_state.selected_patient_id
+
+    if not selected_patient_id:
+        st.info("Select a patient to view details.")
+    else:
+        selected_patient = next(
+            (
+                patient for patient in patients
+                if patient[0] == selected_patient_id
+            ),
+            None
         )
 
-        if not confirm:
-            return
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            DELETE FROM treatment_needs
-            WHERE patient_id = ?
-        """, (self.selected_patient_id,))
-
-        cursor.execute("""
-            DELETE FROM recalls
-            WHERE patient_id = ?
-        """, (self.selected_patient_id,))
-
-        cursor.execute("""
-            DELETE FROM patients
-            WHERE id = ?
-        """, (self.selected_patient_id,))
-
-        conn.commit()
-        conn.close()
-
-        self.selected_patient_id = None
-        self.patient_title.config(text="Select a patient")
-
-        self.load_patients()
-        self.clear_details()
-        self.update_dashboard()
-
-    # ========================================================
-    # TREATMENTS
-    # ========================================================
-
-    def load_treatments(self):
-
-        for item in self.treatment_tree.get_children():
-            self.treatment_tree.delete(item)
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT id, tooth, treatment,
-                   priority, status
-            FROM treatment_needs
-            WHERE patient_id = ?
-        """, (self.selected_patient_id,))
-
-        rows = cursor.fetchall()
-
-        conn.close()
-
-        for row in rows:
-            self.treatment_tree.insert(
-                "",
-                tk.END,
-                iid=row[0],
-                values=row[1:]
+        if selected_patient:
+            patient_identifier = selected_patient[1]
+        else:
+            all_patients = get_patients()
+            selected_patient = next(
+                (
+                    patient for patient in all_patients
+                    if patient[0] == selected_patient_id
+                ),
+                None
+            )
+            patient_identifier = (
+                selected_patient[1] if selected_patient else "Unknown"
             )
 
-    def add_treatment(self):
+        st.header(f"Patient {patient_identifier}")
 
-        if not self.selected_patient_id:
-            return
 
-        self.treatment_window()
+        # ====================================================
+        # TREATMENT NEEDS
+        # ====================================================
 
-    def edit_treatment(self):
+        st.subheader("Restorative Needs")
 
-        selected = self.treatment_tree.selection()
+        treatments = get_treatments(selected_patient_id)
 
-        if not selected:
-            messagebox.showwarning(
-                "Select Treatment",
-                "Select a treatment first."
+        if treatments:
+            treatment_df = pd.DataFrame(
+                [
+                    {
+                        "ID": row[0],
+                        "Tooth": row[1] or "",
+                        "Treatment": row[2] or "",
+                        "Priority": row[3] or "",
+                        "Status": row[4] or "",
+                    }
+                    for row in treatments
+                ]
             )
-            return
 
-        treatment_id = selected[0]
+            st.dataframe(
+                treatment_df.drop(columns=["ID"]),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No restorative needs recorded.")
 
-        conn = connect_db()
-        cursor = conn.cursor()
+        treatment_ids = [row[0] for row in treatments]
 
-        cursor.execute("""
-            SELECT tooth, treatment,
-                   priority, status, notes
-            FROM treatment_needs
-            WHERE id = ?
-        """, (treatment_id,))
-
-        data = cursor.fetchone()
-        conn.close()
-
-        self.treatment_window(
-            treatment_id,
-            data
+        selected_treatment = st.selectbox(
+            "Select treatment",
+            options=["None"] + treatment_ids,
+            format_func=lambda x: (
+                "None"
+                if x == "None"
+                else next(
+                    (
+                        f"Tooth {row[1]} — {row[2]}"
+                        for row in treatments
+                        if row[0] == x
+                    ),
+                    str(x)
+                )
+            ),
+            key="treatment_selector"
         )
 
-    def treatment_window(self, treatment_id=None, data=None):
+        button1, button2, button3 = st.columns(3)
 
-        window = tk.Toplevel(self.root)
-        window.title("Treatment")
-        window.geometry("450x450")
+        with button1:
+            if st.button("Add Treatment", use_container_width=True):
+                st.session_state.show_treatment_form = True
+                st.session_state.editing_treatment = False
+                st.session_state.selected_treatment_id = None
+                st.rerun()
 
-        labels = [
-            "Tooth",
-            "Treatment",
-            "Priority",
-            "Status",
-            "Notes"
-        ]
+        with button2:
+            if st.button(
+                "Edit Treatment",
+                disabled=selected_treatment == "None",
+                use_container_width=True
+            ):
+                st.session_state.show_treatment_form = True
+                st.session_state.editing_treatment = True
+                st.session_state.selected_treatment_id = selected_treatment
+                st.rerun()
 
-        entries = []
-
-        for i, label in enumerate(labels):
-
-            tk.Label(
-                window,
-                text=label
-            ).pack(anchor="w", padx=20, pady=(10, 2))
-
-            if label in ["Priority", "Status"]:
-
-                if label == "Priority":
-                    values = ["High", "Medium", "Low"]
-
-                else:
-                    values = [
-                        "Planned",
-                        "Scheduled",
-                        "In Progress",
-                        "Completed",
-                        "Referred"
-                    ]
-
-                entry = ttk.Combobox(
-                    window,
-                    values=values,
-                    state="readonly"
+        with button3:
+            if st.button(
+                "Delete Treatment",
+                disabled=selected_treatment == "None",
+                use_container_width=True
+            ):
+                conn = connect_db()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM treatment_needs WHERE id = ?",
+                    (selected_treatment,)
                 )
+                conn.commit()
+                conn.close()
+                st.session_state.selected_treatment_id = None
+                st.rerun()
 
-                entry.pack(
-                    fill="x",
-                    padx=20
-                )
 
-            else:
+        # ====================================================
+        # TREATMENT FORM
+        # ====================================================
 
-                entry = tk.Entry(window)
-                entry.pack(
-                    fill="x",
-                    padx=20
-                )
+        if st.session_state.show_treatment_form:
+            treatment_id = st.session_state.selected_treatment_id
 
-            entries.append(entry)
-
-        if data:
-
-            for entry, value in zip(entries, data):
-
-                entry.insert(
-                    0,
-                    value if value else ""
-                )
-
-        def save():
-
-            values = [
-                entry.get().strip()
-                for entry in entries
-            ]
-
-            conn = connect_db()
-            cursor = conn.cursor()
+            existing = None
 
             if treatment_id:
-
+                conn = connect_db()
+                cursor = conn.cursor()
                 cursor.execute("""
-                    UPDATE treatment_needs
-                    SET tooth = ?,
-                        treatment = ?,
-                        priority = ?,
-                        status = ?,
-                        notes = ?
+                    SELECT tooth, treatment, priority, status, notes
+                    FROM treatment_needs
                     WHERE id = ?
-                """, (*values, treatment_id))
+                """, (treatment_id,))
+                existing = cursor.fetchone()
+                conn.close()
 
-            else:
+            st.markdown("---")
+            st.subheader(
+                "Edit Treatment" if treatment_id else "Add Treatment"
+            )
 
-                cursor.execute("""
-                    INSERT INTO treatment_needs
+            default_tooth = existing[0] if existing else ""
+            default_treatment = existing[1] if existing else ""
+            default_priority = existing[2] if existing else "Medium"
+            default_status = existing[3] if existing else "Planned"
+            default_notes = existing[4] if existing else ""
+
+            tooth = st.text_input(
+                "Tooth",
+                value=default_tooth,
+                key=f"treatment_tooth_{treatment_id}"
+            )
+
+            treatment = st.text_input(
+                "Treatment",
+                value=default_treatment,
+                key=f"treatment_name_{treatment_id}"
+            )
+
+            priority = st.selectbox(
+                "Priority",
+                ["High", "Medium", "Low"],
+                index=(
+                    ["High", "Medium", "Low"].index(default_priority)
+                    if default_priority in ["High", "Medium", "Low"]
+                    else 1
+                ),
+                key=f"treatment_priority_{treatment_id}"
+            )
+
+            status_options = [
+                "Planned",
+                "Scheduled",
+                "In Progress",
+                "Completed",
+                "Referred"
+            ]
+
+            status = st.selectbox(
+                "Status",
+                status_options,
+                index=(
+                    status_options.index(default_status)
+                    if default_status in status_options
+                    else 0
+                ),
+                key=f"treatment_status_{treatment_id}"
+            )
+
+            notes = st.text_area(
+                "Notes",
+                value=default_notes,
+                key=f"treatment_notes_{treatment_id}"
+            )
+
+            save_col, cancel_col = st.columns(2)
+
+            with save_col:
+                if st.button(
+                    "Save Treatment",
+                    type="primary",
+                    use_container_width=True
+                ):
+                    conn = connect_db()
+                    cursor = conn.cursor()
+
+                    if treatment_id:
+                        cursor.execute("""
+                            UPDATE treatment_needs
+                            SET tooth = ?,
+                                treatment = ?,
+                                priority = ?,
+                                status = ?,
+                                notes = ?
+                            WHERE id = ?
+                        """, (
+                            tooth.strip(),
+                            treatment.strip(),
+                            priority,
+                            status,
+                            notes.strip(),
+                            treatment_id
+                        ))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO treatment_needs
+                            (
+                                patient_id,
+                                tooth,
+                                treatment,
+                                priority,
+                                status,
+                                notes
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (
+                            selected_patient_id,
+                            tooth.strip(),
+                            treatment.strip(),
+                            priority,
+                            status,
+                            notes.strip()
+                        ))
+
+                    conn.commit()
+                    conn.close()
+
+                    st.session_state.show_treatment_form = False
+                    st.session_state.selected_treatment_id = None
+                    st.rerun()
+
+            with cancel_col:
+                if st.button(
+                    "Cancel",
+                    use_container_width=True
+                ):
+                    st.session_state.show_treatment_form = False
+                    st.session_state.selected_treatment_id = None
+                    st.rerun()
+
+
+        # ====================================================
+        # RECALLS
+        # ====================================================
+
+        st.markdown("---")
+        st.subheader("Recall")
+
+        recalls = get_recalls(selected_patient_id)
+
+        if recalls:
+            recall_df = pd.DataFrame(
+                [
+                    {
+                        "ID": row[0],
+                        "Recall Type": row[1] or "",
+                        "Interval": f"{row[2]} months",
+                        "Last Visit": row[3] or "",
+                        "Next Due": row[4] or "",
+                        "Status": row[5] or "",
+                    }
+                    for row in recalls
+                ]
+            )
+
+            st.dataframe(
+                recall_df.drop(columns=["ID"]),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("No recalls recorded.")
+
+        recall_ids = [row[0] for row in recalls]
+
+        selected_recall = st.selectbox(
+            "Select recall",
+            options=["None"] + recall_ids,
+            format_func=lambda x: (
+                "None"
+                if x == "None"
+                else next(
                     (
-                        patient_id,
-                        tooth,
-                        treatment,
-                        priority,
-                        status,
-                        notes
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    self.selected_patient_id,
-                    *values
-                ))
-
-            conn.commit()
-            conn.close()
-
-            window.destroy()
-
-            self.load_treatments()
-            self.update_dashboard()
-
-        tk.Button(
-            window,
-            text="Save",
-            command=save
-        ).pack(pady=20)
-
-    def delete_treatment(self):
-
-        selected = self.treatment_tree.selection()
-
-        if not selected:
-            return
-
-        if not messagebox.askyesno(
-            "Delete Treatment",
-            "Delete this treatment need?"
-        ):
-            return
-
-        treatment_id = selected[0]
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            DELETE FROM treatment_needs
-            WHERE id = ?
-        """, (treatment_id,))
-
-        conn.commit()
-        conn.close()
-
-        self.load_treatments()
-        self.update_dashboard()
-
-    # ========================================================
-    # RECALLS
-    # ========================================================
-
-    def load_recalls(self):
-
-        for item in self.recall_tree.get_children():
-            self.recall_tree.delete(item)
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT id,
-                   recall_type,
-                   interval_months,
-                   last_visit,
-                   next_due,
-                   status
-            FROM recalls
-            WHERE patient_id = ?
-        """, (self.selected_patient_id,))
-
-        rows = cursor.fetchall()
-
-        conn.close()
-
-        for row in rows:
-
-            self.recall_tree.insert(
-                "",
-                tk.END,
-                iid=row[0],
-                values=(
-                    row[1],
-                    f"{row[2]} months",
-                    row[3],
-                    row[4],
-                    row[5]
+                        f"{row[1]} — due {row[4]}"
+                        for row in recalls
+                        if row[0] == x
+                    ),
+                    str(x)
                 )
-            )
-
-    def add_recall(self):
-
-        if not self.selected_patient_id:
-            return
-
-        self.recall_window()
-
-    def edit_recall(self):
-
-        selected = self.recall_tree.selection()
-
-        if not selected:
-            messagebox.showwarning(
-                "Select Recall",
-                "Select a recall first."
-            )
-            return
-
-        recall_id = selected[0]
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT recall_type,
-                   interval_months,
-                   last_visit,
-                   status
-            FROM recalls
-            WHERE id = ?
-        """, (recall_id,))
-
-        data = cursor.fetchone()
-
-        conn.close()
-
-        self.recall_window(
-            recall_id,
-            data
+            ),
+            key="recall_selector"
         )
 
-    def recall_window(self, recall_id=None, data=None):
+        button1, button2, button3 = st.columns(3)
 
-        window = tk.Toplevel(self.root)
-        window.title("Recall")
-        window.geometry("400x350")
+        with button1:
+            if st.button("Add Recall", use_container_width=True):
+                st.session_state.show_recall_form = True
+                st.session_state.selected_recall_id = None
+                st.rerun()
 
-        tk.Label(
-            window,
-            text="Recall Type"
-        ).pack(pady=(15, 3))
+        with button2:
+            if st.button(
+                "Edit Recall",
+                disabled=selected_recall == "None",
+                use_container_width=True
+            ):
+                st.session_state.show_recall_form = True
+                st.session_state.selected_recall_id = selected_recall
+                st.rerun()
 
-        recall_type = ttk.Combobox(
-            window,
-            values=[
+        with button3:
+            if st.button(
+                "Delete Recall",
+                disabled=selected_recall == "None",
+                use_container_width=True
+            ):
+                conn = connect_db()
+                cursor = conn.cursor()
+                cursor.execute(
+                    "DELETE FROM recalls WHERE id = ?",
+                    (selected_recall,)
+                )
+                conn.commit()
+                conn.close()
+                st.session_state.selected_recall_id = None
+                st.rerun()
+
+
+        # ====================================================
+        # RECALL FORM
+        # ====================================================
+
+        if st.session_state.show_recall_form:
+            recall_id = st.session_state.selected_recall_id
+
+            existing = None
+
+            if recall_id:
+                conn = connect_db()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT recall_type,
+                           interval_months,
+                           last_visit,
+                           status
+                    FROM recalls
+                    WHERE id = ?
+                """, (recall_id,))
+                existing = cursor.fetchone()
+                conn.close()
+
+            st.markdown("---")
+            st.subheader("Edit Recall" if recall_id else "Add Recall")
+
+            recall_types = [
                 "Perio Maintenance",
                 "Prophy",
                 "Periodic Exam",
@@ -830,253 +747,175 @@ class DentalTracker:
                 "Post-op Follow-up",
                 "Other"
             ]
-        )
-        recall_type.pack(fill="x", padx=20)
 
-        tk.Label(
-            window,
-            text="Interval (months)"
-        ).pack(pady=(15, 3))
+            default_type = existing[0] if existing else "Periodic Exam"
+            default_interval = int(existing[1]) if existing else 6
+            default_last_visit = existing[2] if existing else date.today().isoformat()
+            default_status = existing[3] if existing else "Upcoming"
 
-        interval = ttk.Combobox(
-            window,
-            values=["3", "4", "6", "12", "18", "24", "36"]
-        )
-        interval.pack(fill="x", padx=20)
-
-        tk.Label(
-            window,
-            text="Last Visit (YYYY-MM-DD)"
-        ).pack(pady=(15, 3))
-
-        last_visit = tk.Entry(window)
-        last_visit.pack(fill="x", padx=20)
-
-        tk.Label(
-            window,
-            text="Status"
-        ).pack(pady=(15, 3))
-
-        status = ttk.Combobox(
-            window,
-            values=[
-                "Upcoming",
-                "Due Soon",
-                "Overdue",
-                "Contacted",
-                "Scheduled",
-                "Completed"
-            ],
-            state="readonly"
-        )
-        status.pack(fill="x", padx=20)
-
-        if data:
-
-            recall_type.set(data[0])
-            interval.set(str(data[1]))
-            last_visit.insert(0, data[2])
-            status.set(data[3])
-
-        def save():
-
-            try:
-                months = int(interval.get())
-            except ValueError:
-                messagebox.showerror(
-                    "Error",
-                    "Interval must be a number."
-                )
-                return
-
-            due_date = calculate_due_date(
-                last_visit.get(),
-                months
+            recall_type = st.selectbox(
+                "Recall Type",
+                recall_types,
+                index=(
+                    recall_types.index(default_type)
+                    if default_type in recall_types
+                    else 0
+                ),
+                key=f"recall_type_{recall_id}"
             )
 
-            if not due_date:
-                messagebox.showerror(
-                    "Error",
-                    "Use YYYY-MM-DD for the last visit."
+            intervals = [3, 4, 6, 12, 18, 24, 36]
+
+            interval = st.selectbox(
+                "Interval (months)",
+                intervals,
+                index=(
+                    intervals.index(default_interval)
+                    if default_interval in intervals
+                    else 2
+                ),
+                key=f"recall_interval_{recall_id}"
+            )
+
+            try:
+                default_date = datetime.strptime(
+                    default_last_visit,
+                    "%Y-%m-%d"
+                ).date()
+            except (ValueError, TypeError):
+                default_date = date.today()
+
+            last_visit_date = st.date_input(
+                "Last Visit",
+                value=default_date,
+                key=f"recall_date_{recall_id}"
+            )
+
+            manually_selected_status = st.selectbox(
+                "Status",
+                [
+                    "Upcoming",
+                    "Due Soon",
+                    "Overdue",
+                    "Contacted",
+                    "Scheduled",
+                    "Completed"
+                ],
+                index=(
+                    [
+                        "Upcoming",
+                        "Due Soon",
+                        "Overdue",
+                        "Contacted",
+                        "Scheduled",
+                        "Completed"
+                    ].index(default_status)
+                    if default_status in [
+                        "Upcoming",
+                        "Due Soon",
+                        "Overdue",
+                        "Contacted",
+                        "Scheduled",
+                        "Completed"
+                    ]
+                    else 0
+                ),
+                key=f"recall_status_{recall_id}"
+            )
+
+            due_date = calculate_due_date(
+                last_visit_date.strftime("%Y-%m-%d"),
+                interval
+            )
+
+            if due_date:
+                days = days_until(due_date)
+
+                if days < 0:
+                    calculated_status = "Overdue"
+                elif days <= 30:
+                    calculated_status = "Due Soon"
+                else:
+                    calculated_status = "Upcoming"
+
+                if manually_selected_status in [
+                    "Contacted",
+                    "Scheduled",
+                    "Completed"
+                ]:
+                    calculated_status = manually_selected_status
+
+                st.info(
+                    f"Next due: **{due_date}**  \n"
+                    f"Calculated status: **{calculated_status}**"
                 )
-                return
 
-            # Automatically determine status
-            days = days_until(due_date)
+            save_col, cancel_col = st.columns(2)
 
-            if days < 0:
-                calculated_status = "Overdue"
-            elif days <= 30:
-                calculated_status = "Due Soon"
-            else:
-                calculated_status = "Upcoming"
+            with save_col:
+                if st.button(
+                    "Save Recall",
+                    type="primary",
+                    use_container_width=True
+                ):
+                    if not due_date:
+                        st.error(
+                            "Could not calculate the due date."
+                        )
+                    else:
+                        conn = connect_db()
+                        cursor = conn.cursor()
 
-            # Preserve manually selected workflow states
-            if status.get() in [
-                "Contacted",
-                "Scheduled",
-                "Completed"
-            ]:
-                calculated_status = status.get()
+                        if recall_id:
+                            cursor.execute("""
+                                UPDATE recalls
+                                SET recall_type = ?,
+                                    interval_months = ?,
+                                    last_visit = ?,
+                                    next_due = ?,
+                                    status = ?
+                                WHERE id = ?
+                            """, (
+                                recall_type,
+                                interval,
+                                last_visit_date.strftime("%Y-%m-%d"),
+                                due_date,
+                                calculated_status,
+                                recall_id
+                            ))
+                        else:
+                            cursor.execute("""
+                                INSERT INTO recalls
+                                (
+                                    patient_id,
+                                    recall_type,
+                                    interval_months,
+                                    last_visit,
+                                    next_due,
+                                    status
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """, (
+                                selected_patient_id,
+                                recall_type,
+                                interval,
+                                last_visit_date.strftime("%Y-%m-%d"),
+                                due_date,
+                                calculated_status
+                            ))
 
-            conn = connect_db()
-            cursor = conn.cursor()
+                        conn.commit()
+                        conn.close()
 
-            if recall_id:
+                        st.session_state.show_recall_form = False
+                        st.session_state.selected_recall_id = None
+                        st.rerun()
 
-                cursor.execute("""
-                    UPDATE recalls
-                    SET recall_type = ?,
-                        interval_months = ?,
-                        last_visit = ?,
-                        next_due = ?,
-                        status = ?
-                    WHERE id = ?
-                """, (
-                    recall_type.get(),
-                    months,
-                    last_visit.get(),
-                    due_date,
-                    calculated_status,
-                    recall_id
-                ))
-
-            else:
-
-                cursor.execute("""
-                    INSERT INTO recalls
-                    (
-                        patient_id,
-                        recall_type,
-                        interval_months,
-                        last_visit,
-                        next_due,
-                        status
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    self.selected_patient_id,
-                    recall_type.get(),
-                    months,
-                    last_visit.get(),
-                    due_date,
-                    calculated_status
-                ))
-
-            conn.commit()
-            conn.close()
-
-            window.destroy()
-
-            self.load_recalls()
-            self.update_dashboard()
-
-        tk.Button(
-            window,
-            text="Save Recall",
-            command=save
-        ).pack(pady=20)
-
-    def delete_recall(self):
-
-        selected = self.recall_tree.selection()
-
-        if not selected:
-            return
-
-        if not messagebox.askyesno(
-            "Delete Recall",
-            "Delete this recall?"
-        ):
-            return
-
-        recall_id = selected[0]
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            DELETE FROM recalls
-            WHERE id = ?
-        """, (recall_id,))
-
-        conn.commit()
-        conn.close()
-
-        self.load_recalls()
-        self.update_dashboard()
-
-    # ========================================================
-    # DASHBOARD
-    # ========================================================
-
-    def update_dashboard(self):
-
-        conn = connect_db()
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT next_due
-            FROM recalls
-            WHERE status NOT IN ('Completed', 'Scheduled')
-        """)
-
-        recalls = cursor.fetchall()
-
-        conn.close()
-
-        overdue = 0
-        due_week = 0
-        due_month = 0
-
-        for row in recalls:
-
-            days = days_until(row[0])
-
-            if days < 0:
-                overdue += 1
-
-            elif days <= 7:
-                due_week += 1
-
-            elif days <= 30:
-                due_month += 1
-
-        self.overdue_label.config(
-            text=f"Overdue: {overdue}"
-        )
-
-        self.week_label.config(
-            text=f"Due this week: {due_week}"
-        )
-
-        self.month_label.config(
-            text=f"Due this month: {due_month}"
-        )
-
-    # ========================================================
-    # CLEAR
-    # ========================================================
-
-    def clear_details(self):
-
-        for item in self.treatment_tree.get_children():
-            self.treatment_tree.delete(item)
-
-        for item in self.recall_tree.get_children():
-            self.recall_tree.delete(item)
-
-
-# ============================================================
-# START PROGRAM
-# ============================================================
-
-if __name__ == "__main__":
-
-    initialize_database()
-
-    root = tk.Tk()
-
-    app = DentalTracker(root)
-
-    root.mainloop()
+            with cancel_col:
+                if st.button(
+                    "Cancel",
+                    use_container_width=True
+                ):
+                    st.session_state.show_recall_form = False
+                    st.session_state.selected_recall_id = None
+                    st.rerun()
