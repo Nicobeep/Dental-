@@ -7,7 +7,7 @@ import hashlib
 import secrets
 import re
 from pathlib import Path
-import html
+import textwrap
 
 
 # ============================================================
@@ -92,11 +92,7 @@ def hash_password(password, salt=None):
     return password_hash, salt
 
 
-def verify_password(
-    password,
-    stored_hash,
-    salt
-):
+def verify_password(password, stored_hash, salt):
 
     password_hash, _ = hash_password(
         password,
@@ -170,10 +166,7 @@ def create_user(username, password):
     return True, "Account created."
 
 
-def authenticate_user(
-    username,
-    password
-):
+def authenticate_user(username, password):
 
     username = username.strip()
 
@@ -274,10 +267,7 @@ def initialize_database_for_user(username):
 # DATE FUNCTIONS
 # ============================================================
 
-def calculate_due_date(
-    last_visit,
-    months
-):
+def calculate_due_date(last_visit, months):
 
     try:
 
@@ -452,7 +442,7 @@ def get_recalls(patient_id):
 
 
 # ============================================================
-# RECALL NOTIFICATION DATA
+# FIND RECALLS THAT NEED NOTIFICATION
 # ============================================================
 
 def get_recall_notifications():
@@ -534,227 +524,311 @@ def get_recall_notifications():
 
 
 # ============================================================
-# RECALL POPUP NOTIFICATION
+# LOWER-RIGHT RECALL POPUP
 # ============================================================
 
 def show_recall_notifications():
 
     overdue, due_soon = get_recall_notifications()
 
+    # Nothing to show
     if not overdue and not due_soon:
         return
 
     total = len(overdue) + len(due_soon)
 
+    # ========================================================
+    # DETERMINE TITLE
+    # ========================================================
+
     if overdue and due_soon:
-        title = f"{total} Recall{'s' if total != 1 else ''} Need Attention"
+
+        title = (
+            f"{total} Recall"
+            f"{'s' if total != 1 else ''} Need Attention"
+        )
+
         icon = "🚨"
 
     elif overdue:
-        title = f"{len(overdue)} Overdue Recall{'s' if len(overdue) != 1 else ''}"
+
+        title = (
+            f"{len(overdue)} Overdue Recall"
+            f"{'s' if len(overdue) != 1 else ''}"
+        )
+
         icon = "🚨"
 
     else:
-        title = f"{len(due_soon)} Recall Due Soon{'s' if len(due_soon) != 1 else ''}"
+
+        title = (
+            f"{len(due_soon)} Recall Due Soon"
+            f"{'s' if len(due_soon) != 1 else ''}"
+        )
+
         icon = "🔔"
+
+
+    # ========================================================
+    # BUILD RECALL ITEMS
+    # ========================================================
 
     items_html = ""
 
-    # ========================================================
-    # OVERDUE
-    # ========================================================
+
+    # --------------------------------------------------------
+    # OVERDUE RECALLS
+    # --------------------------------------------------------
 
     for item in overdue:
 
         if item["days"] == 1:
+
             timing = "1 day overdue"
+
         else:
-            timing = f"{item['days']} days overdue"
+
+            timing = (
+                f"{item['days']} days overdue"
+            )
+
 
         items_html += f"""
-        <div class="recall-item overdue">
+<div class="recall-item overdue">
 
-            <div class="patient">
-                Patient {item["patient"]}
-            </div>
+    <div class="patient">
+        Patient {item["patient"]}
+    </div>
 
-            <div class="type">
-                {item["type"]}
-            </div>
+    <div class="type">
+        {item["type"]}
+    </div>
 
-            <div class="date overdue-date">
-                {timing}
-            </div>
+    <div class="date overdue-date">
+        {timing}
+    </div>
 
-        </div>
-        """
+</div>
+"""
 
-    # ========================================================
-    # DUE SOON
-    # ========================================================
+
+    # --------------------------------------------------------
+    # DUE SOON RECALLS
+    # --------------------------------------------------------
 
     for item in due_soon:
 
         if item["days"] == 0:
+
             timing = "DUE TODAY"
 
         elif item["days"] == 1:
+
             timing = "Tomorrow"
 
         else:
-            timing = f"In {item['days']} days"
+
+            timing = (
+                f"In {item['days']} days"
+            )
+
 
         items_html += f"""
-        <div class="recall-item">
+<div class="recall-item">
 
-            <div class="patient">
-                Patient {item["patient"]}
-            </div>
+    <div class="patient">
+        Patient {item["patient"]}
+    </div>
 
-            <div class="type">
-                {item["type"]}
-            </div>
+    <div class="type">
+        {item["type"]}
+    </div>
 
-            <div class="date">
-                Due {item["due"]} · {timing}
-            </div>
+    <div class="date">
+        Due {item["due"]} · {timing}
+    </div>
 
-        </div>
-        """
+</div>
+"""
+
 
     # ========================================================
-    # POPUP
+    # POPUP HTML
     # ========================================================
 
     notification = f"""
-    <style>
+<style>
 
-    .recall-popup {{
-        position: fixed;
-        right: 25px;
-        bottom: 25px;
+.recall-popup {{
+    position: fixed;
 
-        width: 370px;
-        max-width: calc(100vw - 50px);
+    right: 25px;
+    bottom: 25px;
 
-        background: white;
+    width: 370px;
 
-        border-radius: 14px;
+    max-width: calc(100vw - 50px);
 
-        padding: 18px;
+    max-height: 70vh;
 
-        box-shadow:
-            0 8px 30px rgba(0,0,0,0.25);
+    overflow-y: auto;
 
-        border: 1px solid #dddddd;
+    background: white;
 
-        z-index: 999999;
+    color: #111827;
 
-        font-family:
-            -apple-system,
-            BlinkMacSystemFont,
-            "Segoe UI",
-            sans-serif;
-    }}
+    border-radius: 14px;
 
-    .recall-header {{
-        display: flex;
-        align-items: center;
+    padding: 18px;
 
-        gap: 10px;
+    box-shadow:
+        0 8px 30px
+        rgba(0, 0, 0, 0.30);
 
-        margin-bottom: 12px;
-    }}
+    border: 1px solid #d1d5db;
 
-    .recall-icon {{
-        font-size: 26px;
-    }}
+    z-index: 999999;
 
-    .recall-title {{
-        font-size: 17px;
-        font-weight: 700;
-    }}
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}}
 
-    .recall-subtitle {{
-        font-size: 12px;
-        color: #777777;
 
-        margin-top: 2px;
-    }}
+.recall-header {{
+    display: flex;
 
-    .recall-item {{
-        padding: 10px;
+    align-items: center;
 
-        margin-top: 7px;
+    gap: 10px;
 
-        border-radius: 8px;
+    margin-bottom: 12px;
+}}
 
-        background: #f5f7fa;
-    }}
 
-    .recall-item.overdue {{
-        background: #fff1f1;
-    }}
+.recall-icon {{
+    font-size: 26px;
+}}
 
-    .patient {{
-        font-size: 13px;
-        font-weight: 700;
-    }}
 
-    .type {{
-        font-size: 12px;
-        color: #555555;
+.recall-title {{
+    font-size: 17px;
 
-        margin-top: 2px;
-    }}
+    font-weight: 700;
 
-    .date {{
-        font-size: 12px;
+    color: #111827;
+}}
 
-        color: #2563eb;
 
-        font-weight: 600;
+.recall-subtitle {{
+    font-size: 12px;
 
-        margin-top: 4px;
-    }}
+    color: #6b7280;
 
-    .overdue-date {{
-        color: #dc2626;
-    }}
+    margin-top: 2px;
+}}
 
-    </style>
 
-    <div class="recall-popup">
+.recall-item {{
+    padding: 10px;
 
-        <div class="recall-header">
+    margin-top: 7px;
 
-            <div class="recall-icon">
-                {icon}
+    border-radius: 9px;
+
+    background: #f3f4f6;
+}}
+
+
+.recall-item.overdue {{
+    background: #fef2f2;
+}}
+
+
+.patient {{
+    font-size: 13px;
+
+    font-weight: 700;
+
+    color: #111827;
+}}
+
+
+.type {{
+    font-size: 12px;
+
+    color: #4b5563;
+
+    margin-top: 2px;
+}}
+
+
+.date {{
+    font-size: 12px;
+
+    font-weight: 600;
+
+    color: #2563eb;
+
+    margin-top: 4px;
+}}
+
+
+.overdue-date {{
+    color: #dc2626;
+}}
+
+
+</style>
+
+
+<div class="recall-popup">
+
+    <div class="recall-header">
+
+        <div class="recall-icon">
+            {icon}
+        </div>
+
+        <div>
+
+            <div class="recall-title">
+                {title}
             </div>
 
-            <div>
-
-                <div class="recall-title">
-                    {title}
-                </div>
-
-                <div class="recall-subtitle">
-                    Recall notification
-                </div>
-
+            <div class="recall-subtitle">
+                Recall notification
             </div>
 
         </div>
 
-        {items_html}
-
     </div>
-    """
+
+    {items_html}
+
+</div>
+"""
+
+    # ========================================================
+    # IMPORTANT FIX
+    #
+    # Remove the Python indentation from the HTML.
+    #
+    # Without this, Streamlit may interpret the HTML as a
+    # Markdown code block and display the <div> tags.
+    # ========================================================
+
+    notification = textwrap.dedent(
+        notification
+    ).strip()
 
     st.markdown(
         notification,
         unsafe_allow_html=True
     )
+
 
 # ============================================================
 # DASHBOARD COUNTS
@@ -877,9 +951,10 @@ if not st.session_state.authenticated:
         ]
     )
 
-    # --------------------------------------------------------
-    # LOGIN
-    # --------------------------------------------------------
+
+    # ========================================================
+    # LOGIN TAB
+    # ========================================================
 
     with login_tab:
 
@@ -893,6 +968,7 @@ if not st.session_state.authenticated:
             type="password",
             key="login_password"
         )
+
 
         if st.button(
             "Log In",
@@ -925,9 +1001,10 @@ if not st.session_state.authenticated:
                     "Invalid username or password."
                 )
 
-    # --------------------------------------------------------
-    # CREATE ACCOUNT
-    # --------------------------------------------------------
+
+    # ========================================================
+    # CREATE ACCOUNT TAB
+    # ========================================================
 
     with create_tab:
 
@@ -947,6 +1024,7 @@ if not st.session_state.authenticated:
             type="password",
             key="confirm_password"
         )
+
 
         if st.button(
             "Create Account",
@@ -977,11 +1055,12 @@ if not st.session_state.authenticated:
 
                     st.error(message)
 
+
     st.stop()
 
 
 # ============================================================
-# INITIALIZE USER DATABASE
+# USER DATABASE
 # ============================================================
 
 initialize_database_for_user(
@@ -990,7 +1069,7 @@ initialize_database_for_user(
 
 
 # ============================================================
-# APP TITLE
+# TITLE
 # ============================================================
 
 st.title(
@@ -1001,11 +1080,15 @@ st.title(
 # ============================================================
 # RECALL NOTIFICATION
 #
-# IMPORTANT:
-# This is intentionally called EVERY time the app runs.
+# This runs every time Streamlit runs the app.
 #
-# There is NO session-state flag preventing it from showing
-# again.
+# Notification appears when:
+#
+#   - Recall is overdue
+#   - Recall is due today
+#   - Recall is due within 14 days
+#
+# It does NOT require the status to be "Due Soon".
 # ============================================================
 
 show_recall_notifications()
@@ -1021,6 +1104,7 @@ with st.sidebar:
         f"**Logged in as:** "
         f"{st.session_state.username}"
     )
+
 
     if st.button(
         "Log Out",
@@ -1052,7 +1136,9 @@ overdue, due_week, due_month = (
     get_dashboard_counts()
 )
 
+
 col1, col2, col3 = st.columns(3)
+
 
 with col1:
 
@@ -1061,12 +1147,14 @@ with col1:
         overdue
     )
 
+
 with col2:
 
     st.metric(
         "Due this week",
         due_week
     )
+
 
 with col3:
 
@@ -1105,6 +1193,7 @@ with st.expander(
         key="new_patient_identifier"
     )
 
+
     if st.button(
         "Save Patient",
         type="primary"
@@ -1113,6 +1202,7 @@ with st.expander(
         patient_identifier = (
             patient_identifier.strip()
         )
+
 
         if not patient_identifier:
 
@@ -1180,6 +1270,7 @@ with left:
         "Patients"
     )
 
+
     if not patients:
 
         st.info(
@@ -1199,6 +1290,7 @@ with left:
                 ==
                 st.session_state.selected_patient_id
             )
+
 
             if st.button(
                 patient_identifier,
@@ -1233,7 +1325,9 @@ with left:
 
                 st.rerun()
 
+
     st.divider()
+
 
     if st.session_state.selected_patient_id:
 
@@ -1243,6 +1337,7 @@ with left:
         ):
 
             st.session_state.confirm_delete_patient = True
+
 
         if st.session_state.get(
             "confirm_delete_patient",
@@ -1254,9 +1349,11 @@ with left:
                 "their workflow data?"
             )
 
+
             confirm_col, cancel_col = (
                 st.columns(2)
             )
+
 
             with confirm_col:
 
@@ -1269,8 +1366,10 @@ with left:
                         st.session_state.selected_patient_id
                     )
 
+
                     conn = connect_db()
                     cursor = conn.cursor()
+
 
                     cursor.execute(
                         """
@@ -1280,6 +1379,7 @@ with left:
                         (patient_id,)
                     )
 
+
                     cursor.execute(
                         """
                         DELETE FROM recalls
@@ -1287,6 +1387,7 @@ with left:
                         """,
                         (patient_id,)
                     )
+
 
                     cursor.execute(
                         """
@@ -1296,14 +1397,17 @@ with left:
                         (patient_id,)
                     )
 
+
                     conn.commit()
                     conn.close()
+
 
                     st.session_state.selected_patient_id = None
 
                     st.session_state.confirm_delete_patient = False
 
                     st.rerun()
+
 
             with cancel_col:
 
@@ -1326,11 +1430,13 @@ with right:
         st.session_state.selected_patient_id
     )
 
+
     if not selected_patient_id:
 
         st.info(
             "Select a patient to view details."
         )
+
 
     else:
 
@@ -1342,6 +1448,7 @@ with right:
             ),
             None
         )
+
 
         if selected_patient:
 
@@ -1369,6 +1476,7 @@ with right:
                 else "Unknown"
             )
 
+
         st.header(
             f"Patient {patient_identifier}"
         )
@@ -1382,9 +1490,11 @@ with right:
             "Restorative Needs"
         )
 
+
         treatments = get_treatments(
             selected_patient_id
         )
+
 
         if treatments:
 
@@ -1402,6 +1512,7 @@ with right:
                 ]
             )
 
+
             st.dataframe(
                 treatment_df.drop(
                     columns=["ID"]
@@ -1409,6 +1520,7 @@ with right:
                 use_container_width=True,
                 hide_index=True
             )
+
 
         else:
 
@@ -1536,6 +1648,7 @@ with right:
 
             existing = None
 
+
             if treatment_id:
 
                 conn = connect_db()
@@ -1576,11 +1689,13 @@ with right:
                 else ""
             )
 
+
             default_treatment = (
                 existing[1]
                 if existing
                 else ""
             )
+
 
             default_priority = (
                 existing[2]
@@ -1588,11 +1703,13 @@ with right:
                 else "Medium"
             )
 
+
             default_status = (
                 existing[3]
                 if existing
                 else "Planned"
             )
+
 
             default_notes = (
                 existing[4]
@@ -1687,6 +1804,7 @@ with right:
                     conn = connect_db()
                     cursor = conn.cursor()
 
+
                     if treatment_id:
 
                         cursor.execute(
@@ -1711,6 +1829,7 @@ with right:
                                 treatment_id
                             )
                         )
+
 
                     else:
 
@@ -1738,8 +1857,10 @@ with right:
                             )
                         )
 
+
                     conn.commit()
                     conn.close()
+
 
                     st.session_state.show_treatment_form = False
 
@@ -1773,9 +1894,11 @@ with right:
             "Recall"
         )
 
+
         recalls = get_recalls(
             selected_patient_id
         )
+
 
         if recalls:
 
@@ -1794,6 +1917,7 @@ with right:
                 ]
             )
 
+
             st.dataframe(
                 recall_df.drop(
                     columns=["ID"]
@@ -1801,6 +1925,7 @@ with right:
                 use_container_width=True,
                 hide_index=True
             )
+
 
         else:
 
@@ -1923,6 +2048,7 @@ with right:
             )
 
             existing = None
+
 
             if recall_id:
 
@@ -2098,9 +2224,9 @@ with right:
             )
 
 
-            # ------------------------------------------------
+            # =================================================
             # CALCULATE DUE DATE
-            # ------------------------------------------------
+            # =================================================
 
             due_date = calculate_due_date(
 
@@ -2123,6 +2249,7 @@ with right:
                     due_date
                 )
 
+
                 if days < 0:
 
                     calculated_status = (
@@ -2141,9 +2268,10 @@ with right:
                         "Upcoming"
                     )
 
-                # ------------------------------------------------
-                # PRESERVE MANUAL TERMINAL STATUS
-                # ------------------------------------------------
+
+                # ---------------------------------------------
+                # MANUAL TERMINAL STATUS
+                # ---------------------------------------------
 
                 if manually_selected_status in [
                     "Contacted",
@@ -2188,6 +2316,7 @@ with right:
                         conn = connect_db()
                         cursor = conn.cursor()
 
+
                         if recall_id:
 
                             cursor.execute(
@@ -2215,6 +2344,7 @@ with right:
                                 )
                             )
 
+
                         else:
 
                             cursor.execute(
@@ -2238,13 +2368,14 @@ with right:
                                     last_visit_date.strftime(
                                         "%Y-%m-%d"
                                     ),
-                                    due_date,
                                     calculated_status
                                 )
                             )
 
+
                         conn.commit()
                         conn.close()
+
 
                         st.session_state.show_recall_form = False
 
