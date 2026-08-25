@@ -8,13 +8,20 @@ import secrets
 import re
 from pathlib import Path
 
+
 # ============================================================
-# MULTI-USER DATABASE
+# CONFIGURATION
 # ============================================================
 
 DATA_DIR = Path("databases")
 USERS_DB = Path("users.db")
 
+RECALL_NOTIFICATION_DAYS = 14
+
+
+# ============================================================
+# DATABASE CONNECTIONS
+# ============================================================
 
 def connect_users_db():
     return sqlite3.connect(USERS_DB)
@@ -22,7 +29,13 @@ def connect_users_db():
 
 def user_db_path(username):
     DATA_DIR.mkdir(exist_ok=True)
-    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", username.strip())
+
+    safe = re.sub(
+        r"[^A-Za-z0-9_.-]",
+        "_",
+        username.strip()
+    )
+
     return DATA_DIR / f"{safe}.db"
 
 
@@ -32,10 +45,17 @@ def connect_db():
     if not username:
         raise RuntimeError("No user is logged in.")
 
-    return sqlite3.connect(user_db_path(username))
+    return sqlite3.connect(
+        user_db_path(username)
+    )
 
+
+# ============================================================
+# USER DATABASE
+# ============================================================
 
 def initialize_users_database():
+
     conn = connect_users_db()
     cursor = conn.cursor()
 
@@ -57,6 +77,7 @@ def initialize_users_database():
 # ============================================================
 
 def hash_password(password, salt=None):
+
     salt = salt or secrets.token_hex(16)
 
     password_hash = hashlib.pbkdf2_hmac(
@@ -69,8 +90,16 @@ def hash_password(password, salt=None):
     return password_hash, salt
 
 
-def verify_password(password, stored_hash, salt):
-    password_hash, _ = hash_password(password, salt)
+def verify_password(
+    password,
+    stored_hash,
+    salt
+):
+
+    password_hash, _ = hash_password(
+        password,
+        salt
+    )
 
     return secrets.compare_digest(
         password_hash,
@@ -78,23 +107,37 @@ def verify_password(password, stored_hash, salt):
     )
 
 
-def create_user(username, password):
+def create_user(
+    username,
+    password
+):
+
     username = username.strip()
 
     if not username or not password:
-        return False, "Username and password are required."
+        return (
+            False,
+            "Username and password are required."
+        )
 
     if len(username) < 3:
-        return False, "Username must be at least 3 characters."
+        return (
+            False,
+            "Username must be at least 3 characters."
+        )
 
     if len(password) < 6:
-        return False, "Password must be at least 6 characters."
+        return (
+            False,
+            "Password must be at least 6 characters."
+        )
 
     if not re.fullmatch(
         r"[A-Za-z0-9_.-]+",
         username
     ):
-        return False, (
+        return (
+            False,
             "Username can only contain letters, "
             "numbers, _, -, and ."
         )
@@ -102,9 +145,12 @@ def create_user(username, password):
     conn = connect_users_db()
     cursor = conn.cursor()
 
-    password_hash, salt = hash_password(password)
+    password_hash, salt = hash_password(
+        password
+    )
 
     try:
+
         cursor.execute(
             """
             INSERT INTO users
@@ -125,17 +171,31 @@ def create_user(username, password):
         conn.commit()
 
     except sqlite3.IntegrityError:
+
         conn.close()
-        return False, "That username already exists."
+
+        return (
+            False,
+            "That username already exists."
+        )
 
     conn.close()
 
-    initialize_database_for_user(username)
+    initialize_database_for_user(
+        username
+    )
 
-    return True, "Account created."
+    return (
+        True,
+        "Account created."
+    )
 
 
-def authenticate_user(username, password):
+def authenticate_user(
+    username,
+    password
+):
+
     username = username.strip()
 
     conn = connect_users_db()
@@ -157,21 +217,24 @@ def authenticate_user(username, password):
 
     conn.close()
 
-    return bool(
-        user
-        and verify_password(
-            password,
-            user[1],
-            user[2]
-        )
+    if not user:
+        return False
+
+    return verify_password(
+        password,
+        user[1],
+        user[2]
     )
 
 
 # ============================================================
-# USER DATABASE
+# USER DATABASE INITIALIZATION
 # ============================================================
 
-def initialize_database_for_user(username):
+def initialize_database_for_user(
+    username
+):
+
     conn = sqlite3.connect(
         user_db_path(username)
     )
@@ -222,8 +285,13 @@ def initialize_database_for_user(username):
 # DATE FUNCTIONS
 # ============================================================
 
-def calculate_due_date(last_visit, months):
+def calculate_due_date(
+    last_visit,
+    months
+):
+
     try:
+
         parsed = datetime.strptime(
             last_visit,
             "%Y-%m-%d"
@@ -233,14 +301,24 @@ def calculate_due_date(last_visit, months):
             months=months
         )
 
-        return due.strftime("%Y-%m-%d")
+        return due.strftime(
+            "%Y-%m-%d"
+        )
 
-    except ValueError:
+    except (
+        ValueError,
+        TypeError
+    ):
+
         return ""
 
 
-def days_until(date_string):
+def days_until(
+    date_string
+):
+
     try:
+
         due = datetime.strptime(
             date_string,
             "%Y-%m-%d"
@@ -254,6 +332,7 @@ def days_until(date_string):
         ValueError,
         TypeError
     ):
+
         return 99999
 
 
@@ -261,7 +340,10 @@ def days_until(date_string):
 # PATIENT FUNCTIONS
 # ============================================================
 
-def get_patients(search=""):
+def get_patients(
+    search=""
+):
+
     conn = connect_db()
     cursor = conn.cursor()
 
@@ -302,7 +384,10 @@ def get_patients(search=""):
     return rows
 
 
-def patient_exists(patient_id):
+def patient_exists(
+    patient_id
+):
+
     conn = connect_db()
     cursor = conn.cursor()
 
@@ -323,10 +408,13 @@ def patient_exists(patient_id):
 
 
 # ============================================================
-# TREATMENTS
+# TREATMENT FUNCTIONS
 # ============================================================
 
-def get_treatments(patient_id):
+def get_treatments(
+    patient_id
+):
+
     conn = connect_db()
     cursor = conn.cursor()
 
@@ -354,10 +442,13 @@ def get_treatments(patient_id):
 
 
 # ============================================================
-# RECALLS
+# RECALL FUNCTIONS
 # ============================================================
 
-def get_recalls(patient_id):
+def get_recalls(
+    patient_id
+):
+
     conn = connect_db()
     cursor = conn.cursor()
 
@@ -385,7 +476,89 @@ def get_recalls(patient_id):
 
 
 # ============================================================
-# RECALL NOTIFICATIONS
+# AUTOMATIC RECALL STATUS
+# ============================================================
+
+def update_recall_statuses():
+
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT
+            id,
+            next_due,
+            status
+        FROM recalls
+        WHERE status
+            NOT IN (
+                'Completed',
+                'Scheduled'
+            )
+        """
+    )
+
+    recalls = cursor.fetchall()
+
+    today = date.today()
+
+    for (
+        recall_id,
+        next_due,
+        current_status
+    ) in recalls:
+
+        try:
+
+            due_date = datetime.strptime(
+                next_due,
+                "%Y-%m-%d"
+            ).date()
+
+        except (
+            ValueError,
+            TypeError
+        ):
+
+            continue
+
+        days = (
+            due_date - today
+        ).days
+
+        if days < 0:
+
+            new_status = "Overdue"
+
+        elif days <= 30:
+
+            new_status = "Due Soon"
+
+        else:
+
+            new_status = "Upcoming"
+
+        if new_status != current_status:
+
+            cursor.execute(
+                """
+                UPDATE recalls
+                SET status = ?
+                WHERE id = ?
+                """,
+                (
+                    new_status,
+                    recall_id
+                )
+            )
+
+    conn.commit()
+    conn.close()
+
+
+# ============================================================
+# GET RECALLS THAT NEED ATTENTION
 # ============================================================
 
 def get_recall_notifications():
@@ -405,7 +578,10 @@ def get_recall_notifications():
         INNER JOIN patients
             ON recalls.patient_id = patients.id
         WHERE recalls.status
-            NOT IN ('Completed', 'Scheduled')
+            NOT IN (
+                'Completed',
+                'Scheduled'
+            )
         ORDER BY recalls.next_due
         """
     )
@@ -422,12 +598,18 @@ def get_recall_notifications():
     for row in rows:
 
         recall_id = row[0]
-        recall_type = row[1] or "Recall"
+
+        recall_type = (
+            row[1]
+            or "Recall"
+        )
+
         next_due = row[2]
-        status = row[3]
+
         patient_identifier = row[4]
 
         try:
+
             due_date = datetime.strptime(
                 next_due,
                 "%Y-%m-%d"
@@ -437,6 +619,7 @@ def get_recall_notifications():
             ValueError,
             TypeError
         ):
+
             continue
 
         days = (
@@ -458,10 +641,14 @@ def get_recall_notifications():
             })
 
         # ----------------------------------------------------
-        # DUE TODAY THROUGH 14 DAYS
+        # DUE WITHIN 14 DAYS
         # ----------------------------------------------------
 
-        elif 0 <= days <= 14:
+        elif (
+            0
+            <= days
+            <= RECALL_NOTIFICATION_DAYS
+        ):
 
             due_soon.append({
                 "id": recall_id,
@@ -471,36 +658,48 @@ def get_recall_notifications():
                 "days": days
             })
 
-    return overdue, due_soon
+    return (
+        overdue,
+        due_soon
+    )
 
 
 # ============================================================
-# LOWER-RIGHT POPUP
+# RECALL POPUP
 # ============================================================
 
 def show_recall_notifications():
 
-    overdue, due_soon = get_recall_notifications()
+    overdue, due_soon = (
+        get_recall_notifications()
+    )
 
     if not overdue and not due_soon:
         return
 
-    # Create a unique key based on today's date and
-    # the actual recall data.
+    # --------------------------------------------------------
+    # UNIQUE NOTIFICATION ID
+    # --------------------------------------------------------
+
     notification_key = (
         date.today().isoformat()
         + "_"
-        + str([
-            (
-                x["id"],
-                x["due"]
-            )
-            for x in overdue + due_soon
-        ])
+        + str(
+            [
+                (
+                    item["id"],
+                    item["due"]
+                )
+                for item
+                in overdue + due_soon
+            ]
+        )
     )
 
-    # Don't show the same popup repeatedly on every
-    # Streamlit rerun.
+    # --------------------------------------------------------
+    # DON'T REPEAT SAME POPUP ON EVERY RERUN
+    # --------------------------------------------------------
+
     if (
         st.session_state.get(
             "recall_notification_shown"
@@ -509,17 +708,22 @@ def show_recall_notifications():
     ):
         return
 
-    # ========================================================
-    # DETERMINE TITLE
-    # ========================================================
+    total = (
+        len(overdue)
+        +
+        len(due_soon)
+    )
 
-    total = len(overdue) + len(due_soon)
+    # --------------------------------------------------------
+    # TITLE
+    # --------------------------------------------------------
 
     if overdue and due_soon:
 
         title = (
             f"{total} Recall"
-            f"{'s' if total != 1 else ''} Need Attention"
+            f"{'s' if total != 1 else ''} "
+            f"Need Attention"
         )
 
         icon = "🚨"
@@ -542,18 +746,21 @@ def show_recall_notifications():
 
         icon = "🔔"
 
-    # ========================================================
-    # BUILD RECALL DETAILS
-    # ========================================================
+    # --------------------------------------------------------
+    # BUILD RECALL LIST
+    # --------------------------------------------------------
 
     details = []
 
     for item in overdue:
 
         if item["days"] == 1:
-            overdue_text = "1 day overdue"
+
+            timing = "1 day overdue"
+
         else:
-            overdue_text = (
+
+            timing = (
                 f"{item['days']} days overdue"
             )
 
@@ -570,7 +777,7 @@ def show_recall_notifications():
                 </div>
 
                 <div class="recall-date overdue-text">
-                    {overdue_text}
+                    {timing}
                 </div>
 
             </div>
@@ -613,47 +820,51 @@ def show_recall_notifications():
             """
         )
 
-    # Limit popup to first 10 recalls
+    # --------------------------------------------------------
+    # LIMIT DISPLAY TO 10
+    # --------------------------------------------------------
+
     details_html = "".join(
         details[:10]
     )
 
-    # If more than 10, show a count
     if total > 10:
 
-        details_html += f"""
-        <div class="more-recalls">
-            + {total - 10} more recall
-            {"s" if total - 10 != 1 else ""}
-        </div>
-        """
+        remaining = (
+            total - 10
+        )
 
-    # ========================================================
-    # HTML / CSS
-    # ========================================================
+        details_html += (
+            f"""
+            <div class="more-recalls">
+                + {remaining} more recall
+                {'s' if remaining != 1 else ''}
+            </div>
+            """
+        )
+
+    # --------------------------------------------------------
+    # POPUP HTML
+    # --------------------------------------------------------
 
     notification_html = f"""
 
     <style>
 
-        /*
-        ======================================================
-        LOWER RIGHT POPUP
-        ======================================================
-        */
-
         .recall-popup {{
 
             position: fixed;
 
-            bottom: 25px;
             right: 25px;
+
+            bottom: 25px;
 
             width: 370px;
 
-            max-width: calc(100vw - 40px);
+            max-width:
+                calc(100vw - 50px);
 
-            background: #ffffff;
+            background: white;
 
             border-radius: 14px;
 
@@ -661,9 +872,10 @@ def show_recall_notifications():
 
             box-shadow:
                 0 10px 35px
-                rgba(0, 0, 0, 0.22);
+                rgba(0, 0, 0, 0.25);
 
-            border: 1px solid #e5e7eb;
+            border:
+                1px solid #e5e7eb;
 
             z-index: 999999;
 
@@ -674,24 +886,18 @@ def show_recall_notifications():
                 sans-serif;
 
             animation:
-                popupSlideIn
+                recallPopupIn
                 0.35s ease-out;
 
         }}
 
 
-        /*
-        ======================================================
-        ANIMATION
-        ======================================================
-        */
-
-        @keyframes popupSlideIn {{
+        @keyframes recallPopupIn {{
 
             from {{
 
                 transform:
-                    translateY(35px);
+                    translateY(40px);
 
                 opacity: 0;
 
@@ -709,32 +915,22 @@ def show_recall_notifications():
         }}
 
 
-        /*
-        ======================================================
-        HEADER
-        ======================================================
-        */
-
         .recall-header {{
 
             display: flex;
 
             align-items: center;
 
-            gap: 11px;
+            gap: 10px;
 
-            padding-right: 20px;
-
-            margin-bottom: 14px;
+            margin-bottom: 12px;
 
         }}
 
 
         .recall-icon {{
 
-            font-size: 26px;
-
-            line-height: 1;
+            font-size: 27px;
 
         }}
 
@@ -747,8 +943,6 @@ def show_recall_notifications():
 
             color: #111827;
 
-            line-height: 1.25;
-
         }}
 
 
@@ -758,28 +952,20 @@ def show_recall_notifications():
 
             color: #6b7280;
 
-            margin-top: 3px;
+            margin-top: 2px;
 
         }}
 
 
-        /*
-        ======================================================
-        RECALL ITEM
-        ======================================================
-        */
-
         .recall-item {{
 
-            padding: 10px 11px;
+            padding: 10px;
 
             margin-top: 7px;
 
             background: #f8fafc;
 
             border-radius: 9px;
-
-            line-height: 1.35;
 
         }}
 
@@ -817,9 +1003,9 @@ def show_recall_notifications():
 
             font-size: 12px;
 
-            color: #2563eb;
-
             font-weight: 600;
+
+            color: #2563eb;
 
             margin-top: 4px;
 
@@ -833,12 +1019,6 @@ def show_recall_notifications():
         }}
 
 
-        /*
-        ======================================================
-        MORE RECALLS
-        ======================================================
-        */
-
         .more-recalls {{
 
             text-align: center;
@@ -851,69 +1031,10 @@ def show_recall_notifications():
 
         }}
 
-
-        /*
-        ======================================================
-        CLOSE BUTTON
-        ======================================================
-        */
-
-        .recall-close {{
-
-            position: absolute;
-
-            top: 8px;
-            right: 10px;
-
-            width: 26px;
-            height: 26px;
-
-            border: none;
-
-            background: transparent;
-
-            color: #9ca3af;
-
-            font-size: 21px;
-
-            line-height: 24px;
-
-            cursor: pointer;
-
-            border-radius: 50%;
-
-        }}
-
-
-        .recall-close:hover {{
-
-            background: #f3f4f6;
-
-            color: #111827;
-
-        }}
-
     </style>
 
 
-    <div
-        class="recall-popup"
-        id="recall-popup"
-    >
-
-        <button
-            class="recall-close"
-            onclick="
-                document
-                    .getElementById(
-                        'recall-popup'
-                    )
-                    .remove();
-            "
-        >
-            ×
-        </button>
-
+    <div class="recall-popup">
 
         <div class="recall-header">
 
@@ -935,19 +1056,27 @@ def show_recall_notifications():
 
         </div>
 
-
         {details_html}
 
     </div>
+
     """
 
-    # Render popup
-    st.components.v1.html(
+    # --------------------------------------------------------
+    # IMPORTANT:
+    # Render directly into Streamlit's page.
+    # Do NOT use components.html(height=0).
+    # --------------------------------------------------------
+
+    st.markdown(
         notification_html,
-        height=0
+        unsafe_allow_html=True
     )
 
-    # Mark as shown
+    # --------------------------------------------------------
+    # REMEMBER THAT THIS EXACT NOTIFICATION WAS SHOWN
+    # --------------------------------------------------------
+
     st.session_state[
         "recall_notification_shown"
     ] = notification_key
@@ -967,7 +1096,10 @@ def get_dashboard_counts():
         SELECT next_due
         FROM recalls
         WHERE status
-            NOT IN ('Completed', 'Scheduled')
+            NOT IN (
+                'Completed',
+                'Scheduled'
+            )
         """
     )
 
@@ -1054,7 +1186,12 @@ st.set_page_config(
 )
 
 
+# ============================================================
+# INITIALIZATION
+# ============================================================
+
 initialize_users_database()
+
 initialize_session_state()
 
 
@@ -1077,6 +1214,7 @@ if not st.session_state.authenticated:
         "Sign in to access your own patient database."
     )
 
+
     login_tab, create_tab = st.tabs(
         [
             "Log In",
@@ -1086,7 +1224,7 @@ if not st.session_state.authenticated:
 
 
     # ========================================================
-    # LOGIN TAB
+    # LOGIN
     # ========================================================
 
     with login_tab:
@@ -1114,7 +1252,9 @@ if not st.session_state.authenticated:
                 password
             ):
 
-                st.session_state.authenticated = True
+                st.session_state.authenticated = (
+                    True
+                )
 
                 st.session_state.username = (
                     username.strip()
@@ -1142,7 +1282,7 @@ if not st.session_state.authenticated:
 
 
     # ========================================================
-    # CREATE ACCOUNT TAB
+    # CREATE ACCOUNT
     # ========================================================
 
     with create_tab:
@@ -1192,19 +1332,28 @@ if not st.session_state.authenticated:
 
                 else:
 
-                    st.error(message)
+                    st.error(
+                        message
+                    )
 
 
     st.stop()
 
 
 # ============================================================
-# INITIALIZE USER DATABASE
+# USER DATABASE
 # ============================================================
 
 initialize_database_for_user(
     st.session_state.username
 )
+
+
+# ============================================================
+# UPDATE RECALL STATUSES
+# ============================================================
+
+update_recall_statuses()
 
 
 # ============================================================
@@ -1238,7 +1387,9 @@ with st.sidebar:
 
         st.session_state.show_recall_form = False
 
-        st.session_state.recall_notification_shown = None
+        st.session_state[
+            "recall_notification_shown"
+        ] = None
 
         st.rerun()
 
@@ -1251,7 +1402,7 @@ show_recall_notifications()
 
 
 # ============================================================
-# TITLE
+# MAIN TITLE
 # ============================================================
 
 st.title(
@@ -1307,6 +1458,7 @@ search = st.text_input(
     placeholder="Enter internal patient ID..."
 )
 
+
 patients = get_patients(
     search
 )
@@ -1361,10 +1513,14 @@ with st.expander(
             cursor.execute(
                 """
                 INSERT INTO patients
-                (patient_id)
+                (
+                    patient_id
+                )
                 VALUES (?)
                 """,
-                (patient_identifier,)
+                (
+                    patient_identifier,
+                )
             )
 
             conn.commit()
@@ -1513,7 +1669,9 @@ with left:
                         DELETE FROM treatment_needs
                         WHERE patient_id = ?
                         """,
-                        (patient_id,)
+                        (
+                            patient_id,
+                        )
                     )
 
 
@@ -1522,7 +1680,9 @@ with left:
                         DELETE FROM recalls
                         WHERE patient_id = ?
                         """,
-                        (patient_id,)
+                        (
+                            patient_id,
+                        )
                     )
 
 
@@ -1531,7 +1691,9 @@ with left:
                         DELETE FROM patients
                         WHERE id = ?
                         """,
-                        (patient_id,)
+                        (
+                            patient_id,
+                        )
                     )
 
 
@@ -1546,6 +1708,10 @@ with left:
                     st.session_state.confirm_delete_patient = (
                         False
                     )
+
+                    st.session_state[
+                        "recall_notification_shown"
+                    ] = None
 
                     st.rerun()
 
@@ -1779,7 +1945,9 @@ with right:
                     DELETE FROM treatment_needs
                     WHERE id = ?
                     """,
-                    (selected_treatment,)
+                    (
+                        selected_treatment,
+                    )
                 )
 
                 conn.commit()
@@ -1821,7 +1989,9 @@ with right:
                     FROM treatment_needs
                     WHERE id = ?
                     """,
-                    (treatment_id,)
+                    (
+                        treatment_id,
+                    )
                 )
 
                 existing = cursor.fetchone()
@@ -1886,6 +2056,7 @@ with right:
 
             priority = st.selectbox(
                 "Priority",
+
                 [
                     "High",
                     "Medium",
@@ -2074,7 +2245,9 @@ with right:
                     {
                         "ID": row[0],
                         "Recall Type": row[1] or "",
-                        "Interval": f"{row[2]} months",
+                        "Interval": (
+                            f"{row[2]} months"
+                        ),
                         "Last Visit": row[3] or "",
                         "Next Due": row[4] or "",
                         "Status": row[5] or "",
@@ -2198,7 +2371,9 @@ with right:
                     DELETE FROM recalls
                     WHERE id = ?
                     """,
-                    (selected_recall,)
+                    (
+                        selected_recall,
+                    )
                 )
 
                 conn.commit()
@@ -2207,6 +2382,10 @@ with right:
                 st.session_state.selected_recall_id = (
                     None
                 )
+
+                st.session_state[
+                    "recall_notification_shown"
+                ] = None
 
                 st.rerun()
 
@@ -2239,7 +2418,9 @@ with right:
                     FROM recalls
                     WHERE id = ?
                     """,
-                    (recall_id,)
+                    (
+                        recall_id,
+                    )
                 )
 
                 existing = cursor.fetchone()
@@ -2294,6 +2475,7 @@ with right:
 
             recall_type = st.selectbox(
                 "Recall Type",
+
                 recall_types,
 
                 index=(
@@ -2324,6 +2506,7 @@ with right:
 
             interval = st.selectbox(
                 "Interval (months)",
+
                 intervals,
 
                 index=(
@@ -2468,7 +2651,6 @@ with right:
                             "the due date."
                         )
 
-
                     else:
 
                         conn = connect_db()
@@ -2533,8 +2715,8 @@ with right:
                         conn.close()
 
 
-                        # Reset notification state so
-                        # newly changed recalls are checked.
+                        # Force notification check
+                        # after saving a recall.
 
                         st.session_state[
                             "recall_notification_shown"
