@@ -580,7 +580,7 @@ with right:
                         "ID": row[0],
                         "Tooth": row[1] or "",
                         "Treatment": row[2] or "",
-                        "Urgency": row[3] or "",
+                        "Priority": row[3] or "",
                         "Status": row[4] or "",
                     }
                     for row in treatments
@@ -697,7 +697,7 @@ with right:
             )
 
             priority = st.selectbox(
-                "Urgency",
+                "Priority",
                 ["High", "Medium", "Low"],
                 index=(
                     ["High", "Medium", "Low"].index(default_priority)
@@ -791,6 +791,7 @@ with right:
             with cancel_col:
                 if st.button(
                     "Cancel",
+                    key="cancel_treatment",
                     use_container_width=True
                 ):
                     st.session_state.show_treatment_form = False
@@ -1087,6 +1088,7 @@ with right:
             with cancel_col:
                 if st.button(
                     "Cancel",
+                    key="cancel_recall",
                     use_container_width=True
                 ):
                     st.session_state.show_recall_form = False
