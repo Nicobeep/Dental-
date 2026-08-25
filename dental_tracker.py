@@ -517,127 +517,253 @@ def get_due_soon_recalls():
 
 def show_recall_notifications():
 
-    overdue, due_soon = (
-        get_due_soon_recalls()
-    )
-
-    # --------------------------------------------------------
-    # Nothing to show
-    # --------------------------------------------------------
+    overdue, due_soon = get_recall_notifications()
 
     if not overdue and not due_soon:
         return
 
-    # --------------------------------------------------------
-    # SESSION STATE
-    #
-    # This prevents the notification from reappearing after
-    # every Streamlit interaction once dismissed.
-    # --------------------------------------------------------
-
     notification_key = (
-        f"{date.today().isoformat()}_"
-        f"{len(overdue)}_"
-        f"{len(due_soon)}"
+        date.today().isoformat()
+        + "_"
+        + str([
+            (x["id"], x["due"])
+            for x in overdue + due_soon
+        ])
     )
 
     if (
-        st.session_state
-        .get("dismissed_notification_key")
+        st.session_state.get("recall_notification_shown")
         == notification_key
     ):
         return
 
     # --------------------------------------------------------
-    # POPUP
+    # BUILD NOTIFICATION TEXT
     # --------------------------------------------------------
 
-    with st.container(border=True):
+    if overdue:
+        title = f"{len(overdue)} Overdue Recall"
+        if len(overdue) != 1:
+            title += "s"
+        icon = "🚨"
+    else:
+        title = f"{len(due_soon)} Recall Due Soon"
+        if len(due_soon) != 1:
+            title += "s"
+        icon = "🔔"
 
-        st.markdown(
-            "### 🔔 Recall Notification"
+    details = []
+
+    for item in overdue:
+
+        details.append(
+            f"""
+            <div class="recall-item overdue-item">
+                <b>Patient {item['patient']}</b>
+                <br>
+                {item['type']} —
+                <span>OVERDUE</span>
+            </div>
+            """
         )
 
-        # ----------------------------------------------------
-        # OVERDUE
-        # ----------------------------------------------------
+    for item in due_soon:
 
-        if overdue:
+        if item["days"] == 0:
+            timing = "DUE TODAY"
+        elif item["days"] == 1:
+            timing = "Tomorrow"
+        else:
+            timing = f"in {item['days']} days"
 
-            st.error(
-                f"**{len(overdue)} overdue "
-                f"recall"
-                f"{'s' if len(overdue) != 1 else ''}**"
-            )
+        details.append(
+            f"""
+            <div class="recall-item">
+                <b>Patient {item['patient']}</b>
+                <br>
+                {item['type']} —
+                {item['due']}
+                <span>({timing})</span>
+            </div>
+            """
+        )
 
-            for item in overdue:
+    details_html = "".join(details[:10])
 
-                st.markdown(
-                    f"**Patient "
-                    f"{item['patient_id']}** — "
-                    f"{item['recall_type']}  \n"
-                    f"Due: **{item['next_due']}**  \n"
-                    f"**{abs(item['days'])} day"
-                    f"{'s' if abs(item['days']) != 1 else ''} overdue**"
-                )
+    # --------------------------------------------------------
+    # LOWER-RIGHT POPUP
+    # --------------------------------------------------------
 
-                st.divider()
+    notification_html = f"""
+    <style>
 
-        # ----------------------------------------------------
-        # DUE SOON
-        # ----------------------------------------------------
+        .recall-popup {{
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
 
-        if due_soon:
+            width: 360px;
+            max-width: calc(100vw - 50px);
 
-            st.warning(
-                f"**{len(due_soon)} recall"
-                f"{'s' if len(due_soon) != 1 else ''} "
-                f"due within 2 weeks**"
-            )
+            background: white;
 
-            for item in due_soon:
+            border-radius: 14px;
 
-                days = item["days"]
+            padding: 18px 20px;
 
-                if days == 0:
+            box-shadow:
+                0 8px 30px rgba(0, 0, 0, 0.20);
 
-                    timing = "DUE TODAY"
+            border: 1px solid #e5e7eb;
 
-                elif days == 1:
+            z-index: 999999;
 
-                    timing = "due tomorrow"
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                sans-serif;
 
-                else:
+            animation:
+                recallSlideIn
+                0.35s ease-out;
+        }}
 
-                    timing = (
-                        f"due in {days} days"
-                    )
+        @keyframes recallSlideIn {{
 
-                st.markdown(
-                    f"**Patient "
-                    f"{item['patient_id']}** — "
-                    f"{item['recall_type']}  \n"
-                    f"Due: **{item['next_due']}** "
-                    f"({timing})"
-                )
+            from {{
+                transform: translateY(30px);
+                opacity: 0;
+            }}
 
-                st.divider()
+            to {{
+                transform: translateY(0);
+                opacity: 1;
+            }}
 
-        # ----------------------------------------------------
-        # DISMISS
-        # ----------------------------------------------------
+        }}
 
-        if st.button(
-            "Dismiss",
-            key="dismiss_recall_notification",
-            use_container_width=True
-        ):
+        .recall-header {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+        }}
 
-            st.session_state[
-                "dismissed_notification_key"
-            ] = notification_key
+        .recall-icon {{
+            font-size: 24px;
+        }}
 
-            st.rerun()
+        .recall-title {{
+            font-size: 17px;
+            font-weight: 700;
+            color: #111827;
+        }}
+
+        .recall-subtitle {{
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 2px;
+        }}
+
+        .recall-item {{
+            font-size: 13px;
+            color: #374151;
+
+            padding: 9px 10px;
+
+            margin-top: 7px;
+
+            background: #f9fafb;
+
+            border-radius: 8px;
+
+            line-height: 1.45;
+        }}
+
+        .recall-item b {{
+            color: #111827;
+        }}
+
+        .recall-item span {{
+            font-weight: 600;
+        }}
+
+        .overdue-item {{
+            background: #fef2f2;
+        }}
+
+        .overdue-item span {{
+            color: #dc2626;
+        }}
+
+        .recall-close {{
+            position: absolute;
+            top: 9px;
+            right: 12px;
+
+            font-size: 20px;
+
+            color: #9ca3af;
+
+            cursor: pointer;
+
+            border: none;
+            background: transparent;
+        }}
+
+        .recall-close:hover {{
+            color: #111827;
+        }}
+
+    </style>
+
+    <div class="recall-popup" id="recall-popup">
+
+        <button
+            class="recall-close"
+            onclick="
+                document.getElementById(
+                    'recall-popup'
+                ).remove();
+            "
+        >
+            ×
+        </button>
+
+        <div class="recall-header">
+
+            <div class="recall-icon">
+                {icon}
+            </div>
+
+            <div>
+
+                <div class="recall-title">
+                    {title}
+                </div>
+
+                <div class="recall-subtitle">
+                    Recall notification
+                </div>
+
+            </div>
+
+        </div>
+
+        {details_html}
+
+    </div>
+    """
+
+    st.components.v1.html(
+        notification_html,
+        height=0,
+    )
+
+    st.session_state[
+        "recall_notification_shown"
+    ] = notification_key
 
 
 def get_dashboard_counts():
