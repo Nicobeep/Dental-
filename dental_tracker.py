@@ -300,6 +300,22 @@ st.set_page_config(
     page_title="Dental Patient Tracker",
     page_icon="🦷",
     layout="wide"
+    
+    st.markdown("""
+<style>
+div.stButton > button[kind="primary"] {
+    background-color: #3B82F6;
+    border-color: #3B82F6;
+    color: white;
+    border-radius: 8px;
+}
+
+div.stButton > button[kind="primary"]:hover {
+    background-color: #2563EB;
+    border-color: #2563EB;
+}
+</style>
+""", unsafe_allow_html=True)
 )
 
 initialize_users_database()
