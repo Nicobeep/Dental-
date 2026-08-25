@@ -126,7 +126,7 @@ def initialize_database_for_user(username):
             patient_id INTEGER NOT NULL,
             tooth TEXT,
             treatment TEXT,
-            urgency TEXT,
+            priority TEXT,
             status TEXT,
             notes TEXT,
             FOREIGN KEY (patient_id) REFERENCES patients(id)
@@ -206,7 +206,7 @@ def get_treatments(patient_id):
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT id, tooth, treatment, urgency, status, notes
+        SELECT id, tooth, treatment, priority, status, notes
         FROM treatment_needs
         WHERE patient_id = ?
         ORDER BY id
@@ -666,7 +666,7 @@ with right:
                 conn = connect_db()
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT tooth, treatment, , status, notes
+                    SELECT tooth, treatment, priority, status, notes
                     FROM treatment_needs
                     WHERE id = ?
                 """, (treatment_id,))
@@ -680,7 +680,7 @@ with right:
 
             default_tooth = existing[0] if existing else ""
             default_treatment = existing[1] if existing else ""
-            default_ = existing[2] if existing else "Medium"
+            default_priority = existing[2] if existing else "Medium"
             default_status = existing[3] if existing else "Planned"
             default_notes = existing[4] if existing else ""
 
@@ -696,15 +696,15 @@ with right:
                 key=f"treatment_name_{treatment_id}"
             )
 
-            urgency = st.selectbox(
-                "",
+            priority = st.selectbox(
+                "Urgency",
                 ["High", "Medium", "Low"],
                 index=(
-                    ["High", "Medium", "Low"].index(default_)
-                    if default_urgency in ["High", "Medium", "Low"]
+                    ["High", "Medium", "Low"].index(default_priority)
+                    if default_priority in ["High", "Medium", "Low"]
                     else 1
                 ),
-                key=f"treatment_urgency_{treatment_id}"
+                key=f"treatment_priority_{treatment_id}"
             )
 
             status_options = [
@@ -748,14 +748,14 @@ with right:
                             UPDATE treatment_needs
                             SET tooth = ?,
                                 treatment = ?,
-                                urgency = ?,
+                                priority = ?,
                                 status = ?,
                                 notes = ?
                             WHERE id = ?
                         """, (
                             tooth.strip(),
                             treatment.strip(),
-                            urgency,
+                            priority,
                             status,
                             notes.strip(),
                             treatment_id
@@ -767,7 +767,7 @@ with right:
                                 patient_id,
                                 tooth,
                                 treatment,
-                                urgency,
+                                priority,
                                 status,
                                 notes
                             )
@@ -776,7 +776,7 @@ with right:
                             selected_patient_id,
                             tooth.strip(),
                             treatment.strip(),
-                            urgency,
+                            priority,
                             status,
                             notes.strip()
                         ))
