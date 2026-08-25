@@ -7,21 +7,27 @@ import hashlib
 import secrets
 import re
 from pathlib import Path
+import html
 
 
 # ============================================================
-# CONFIGURATION
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="Dental Patient Tracker",
+    page_icon="🦷",
+    layout="wide"
+)
+
+
+# ============================================================
+# MULTI-USER DATABASE
 # ============================================================
 
 DATA_DIR = Path("databases")
 USERS_DB = Path("users.db")
 
-RECALL_NOTIFICATION_DAYS = 14
-
-
-# ============================================================
-# DATABASE CONNECTIONS
-# ============================================================
 
 def connect_users_db():
     return sqlite3.connect(USERS_DB)
@@ -72,10 +78,6 @@ def initialize_users_database():
     conn.close()
 
 
-# ============================================================
-# PASSWORD FUNCTIONS
-# ============================================================
-
 def hash_password(password, salt=None):
 
     salt = salt or secrets.token_hex(16)
@@ -107,30 +109,18 @@ def verify_password(
     )
 
 
-def create_user(
-    username,
-    password
-):
+def create_user(username, password):
 
     username = username.strip()
 
     if not username or not password:
-        return (
-            False,
-            "Username and password are required."
-        )
+        return False, "Username and password are required."
 
     if len(username) < 3:
-        return (
-            False,
-            "Username must be at least 3 characters."
-        )
+        return False, "Username must be at least 3 characters."
 
     if len(password) < 6:
-        return (
-            False,
-            "Password must be at least 6 characters."
-        )
+        return False, "Password must be at least 6 characters."
 
     if not re.fullmatch(
         r"[A-Za-z0-9_.-]+",
@@ -138,16 +128,13 @@ def create_user(
     ):
         return (
             False,
-            "Username can only contain letters, "
-            "numbers, _, -, and ."
+            "Username can only contain letters, numbers, _, -, and ."
         )
 
     conn = connect_users_db()
     cursor = conn.cursor()
 
-    password_hash, salt = hash_password(
-        password
-    )
+    password_hash, salt = hash_password(password)
 
     try:
 
@@ -174,21 +161,13 @@ def create_user(
 
         conn.close()
 
-        return (
-            False,
-            "That username already exists."
-        )
+        return False, "That username already exists."
 
     conn.close()
 
-    initialize_database_for_user(
-        username
-    )
+    initialize_database_for_user(username)
 
-    return (
-        True,
-        "Account created."
-    )
+    return True, "Account created."
 
 
 def authenticate_user(
@@ -217,29 +196,31 @@ def authenticate_user(
 
     conn.close()
 
-    if not user:
-        return False
-
-    return verify_password(
-        password,
-        user[1],
-        user[2]
+    return bool(
+        user
+        and verify_password(
+            password,
+            user[1],
+            user[2]
+        )
     )
 
 
 # ============================================================
-# USER DATABASE INITIALIZATION
+# USER DATABASE STRUCTURE
 # ============================================================
 
-def initialize_database_for_user(
-    username
-):
+def initialize_database_for_user(username):
 
     conn = sqlite3.connect(
         user_db_path(username)
     )
 
     cursor = conn.cursor()
+
+    # --------------------------------------------------------
+    # PATIENTS
+    # --------------------------------------------------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS patients (
@@ -248,6 +229,10 @@ def initialize_database_for_user(
             notes TEXT
         )
     """)
+
+    # --------------------------------------------------------
+    # TREATMENTS
+    # --------------------------------------------------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS treatment_needs (
@@ -262,6 +247,10 @@ def initialize_database_for_user(
                 REFERENCES patients(id)
         )
     """)
+
+    # --------------------------------------------------------
+    # RECALLS
+    # --------------------------------------------------------
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS recalls (
@@ -305,17 +294,12 @@ def calculate_due_date(
             "%Y-%m-%d"
         )
 
-    except (
-        ValueError,
-        TypeError
-    ):
+    except (ValueError, TypeError):
 
         return ""
 
 
-def days_until(
-    date_string
-):
+def days_until(date_string):
 
     try:
 
@@ -340,9 +324,7 @@ def days_until(
 # PATIENT FUNCTIONS
 # ============================================================
 
-def get_patients(
-    search=""
-):
+def get_patients(search=""):
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -384,9 +366,7 @@ def get_patients(
     return rows
 
 
-def patient_exists(
-    patient_id
-):
+def patient_exists(patient_id):
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -411,9 +391,7 @@ def patient_exists(
 # TREATMENT FUNCTIONS
 # ============================================================
 
-def get_treatments(
-    patient_id
-):
+def get_treatments(patient_id):
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -445,9 +423,7 @@ def get_treatments(
 # RECALL FUNCTIONS
 # ============================================================
 
-def get_recalls(
-    patient_id
-):
+def get_recalls(patient_id):
 
     conn = connect_db()
     cursor = conn.cursor()
@@ -476,89 +452,7 @@ def get_recalls(
 
 
 # ============================================================
-# AUTOMATIC RECALL STATUS
-# ============================================================
-
-def update_recall_statuses():
-
-    conn = connect_db()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT
-            id,
-            next_due,
-            status
-        FROM recalls
-        WHERE status
-            NOT IN (
-                'Completed',
-                'Scheduled'
-            )
-        """
-    )
-
-    recalls = cursor.fetchall()
-
-    today = date.today()
-
-    for (
-        recall_id,
-        next_due,
-        current_status
-    ) in recalls:
-
-        try:
-
-            due_date = datetime.strptime(
-                next_due,
-                "%Y-%m-%d"
-            ).date()
-
-        except (
-            ValueError,
-            TypeError
-        ):
-
-            continue
-
-        days = (
-            due_date - today
-        ).days
-
-        if days < 0:
-
-            new_status = "Overdue"
-
-        elif days <= 30:
-
-            new_status = "Due Soon"
-
-        else:
-
-            new_status = "Upcoming"
-
-        if new_status != current_status:
-
-            cursor.execute(
-                """
-                UPDATE recalls
-                SET status = ?
-                WHERE id = ?
-                """,
-                (
-                    new_status,
-                    recall_id
-                )
-            )
-
-    conn.commit()
-    conn.close()
-
-
-# ============================================================
-# GET RECALLS THAT NEED ATTENTION
+# RECALL NOTIFICATION DATA
 # ============================================================
 
 def get_recall_notifications():
@@ -570,18 +464,20 @@ def get_recall_notifications():
         """
         SELECT
             recalls.id,
+            patients.patient_id,
             recalls.recall_type,
             recalls.next_due,
-            recalls.status,
-            patients.patient_id
+            recalls.status
         FROM recalls
+
         INNER JOIN patients
             ON recalls.patient_id = patients.id
-        WHERE recalls.status
-            NOT IN (
-                'Completed',
-                'Scheduled'
-            )
+
+        WHERE recalls.status NOT IN (
+            'Scheduled',
+            'Completed'
+        )
+
         ORDER BY recalls.next_due
         """
     )
@@ -593,38 +489,18 @@ def get_recall_notifications():
     overdue = []
     due_soon = []
 
-    today = date.today()
+    for (
+        recall_id,
+        patient_identifier,
+        recall_type,
+        next_due,
+        status
+    ) in rows:
 
-    for row in rows:
-
-        recall_id = row[0]
-
-        recall_type = (
-            row[1]
-            or "Recall"
-        )
-
-        next_due = row[2]
-
-        patient_identifier = row[4]
-
-        try:
-
-            due_date = datetime.strptime(
-                next_due,
-                "%Y-%m-%d"
-            ).date()
-
-        except (
-            ValueError,
-            TypeError
-        ):
-
+        if not next_due:
             continue
 
-        days = (
-            due_date - today
-        ).days
+        days = days_until(next_due)
 
         # ----------------------------------------------------
         # OVERDUE
@@ -635,7 +511,7 @@ def get_recall_notifications():
             overdue.append({
                 "id": recall_id,
                 "patient": patient_identifier,
-                "type": recall_type,
+                "type": recall_type or "Recall",
                 "due": next_due,
                 "days": abs(days)
             })
@@ -644,75 +520,31 @@ def get_recall_notifications():
         # DUE WITHIN 14 DAYS
         # ----------------------------------------------------
 
-        elif (
-            0
-            <= days
-            <= RECALL_NOTIFICATION_DAYS
-        ):
+        elif days <= 14:
 
             due_soon.append({
                 "id": recall_id,
                 "patient": patient_identifier,
-                "type": recall_type,
+                "type": recall_type or "Recall",
                 "due": next_due,
                 "days": days
             })
 
-    return (
-        overdue,
-        due_soon
-    )
+    return overdue, due_soon
 
 
 # ============================================================
-# RECALL POPUP
+# RECALL POPUP NOTIFICATION
 # ============================================================
 
 def show_recall_notifications():
 
-    overdue, due_soon = (
-        get_recall_notifications()
-    )
+    overdue, due_soon = get_recall_notifications()
 
     if not overdue and not due_soon:
         return
 
-    # --------------------------------------------------------
-    # UNIQUE NOTIFICATION ID
-    # --------------------------------------------------------
-
-    notification_key = (
-        date.today().isoformat()
-        + "_"
-        + str(
-            [
-                (
-                    item["id"],
-                    item["due"]
-                )
-                for item
-                in overdue + due_soon
-            ]
-        )
-    )
-
-    # --------------------------------------------------------
-    # DON'T REPEAT SAME POPUP ON EVERY RERUN
-    # --------------------------------------------------------
-
-    if (
-        st.session_state.get(
-            "recall_notification_shown"
-        )
-        == notification_key
-    ):
-        return
-
-    total = (
-        len(overdue)
-        +
-        len(due_soon)
-    )
+    total = len(overdue) + len(due_soon)
 
     # --------------------------------------------------------
     # TITLE
@@ -747,10 +579,14 @@ def show_recall_notifications():
         icon = "🔔"
 
     # --------------------------------------------------------
-    # BUILD RECALL LIST
+    # RECALL ITEMS
     # --------------------------------------------------------
 
     details = []
+
+    # --------------------------------------------------------
+    # OVERDUE
+    # --------------------------------------------------------
 
     for item in overdue:
 
@@ -764,16 +600,24 @@ def show_recall_notifications():
                 f"{item['days']} days overdue"
             )
 
+        patient = html.escape(
+            str(item["patient"])
+        )
+
+        recall_type = html.escape(
+            str(item["type"])
+        )
+
         details.append(
             f"""
             <div class="recall-item overdue-item">
 
                 <div class="patient-name">
-                    Patient {item['patient']}
+                    Patient {patient}
                 </div>
 
                 <div class="recall-type">
-                    {item['type']}
+                    {recall_type}
                 </div>
 
                 <div class="recall-date overdue-text">
@@ -783,6 +627,10 @@ def show_recall_notifications():
             </div>
             """
         )
+
+    # --------------------------------------------------------
+    # DUE SOON
+    # --------------------------------------------------------
 
     for item in due_soon:
 
@@ -800,20 +648,32 @@ def show_recall_notifications():
                 f"In {item['days']} days"
             )
 
+        patient = html.escape(
+            str(item["patient"])
+        )
+
+        recall_type = html.escape(
+            str(item["type"])
+        )
+
+        due = html.escape(
+            str(item["due"])
+        )
+
         details.append(
             f"""
             <div class="recall-item">
 
                 <div class="patient-name">
-                    Patient {item['patient']}
+                    Patient {patient}
                 </div>
 
                 <div class="recall-type">
-                    {item['type']}
+                    {recall_type}
                 </div>
 
                 <div class="recall-date">
-                    Due {item['due']} · {timing}
+                    Due {due} · {timing}
                 </div>
 
             </div>
@@ -821,27 +681,25 @@ def show_recall_notifications():
         )
 
     # --------------------------------------------------------
-    # LIMIT DISPLAY TO 10
+    # LIMIT DISPLAY
     # --------------------------------------------------------
 
+    display_items = details[:10]
+
     details_html = "".join(
-        details[:10]
+        display_items
     )
 
     if total > 10:
 
-        remaining = (
-            total - 10
-        )
+        remaining = total - 10
 
-        details_html += (
-            f"""
-            <div class="more-recalls">
-                + {remaining} more recall
-                {'s' if remaining != 1 else ''}
-            </div>
-            """
-        )
+        details_html += f"""
+        <div class="more-recalls">
+            + {remaining} more recall
+            {'s' if remaining != 1 else ''}
+        </div>
+        """
 
     # --------------------------------------------------------
     # POPUP HTML
@@ -856,13 +714,16 @@ def show_recall_notifications():
             position: fixed;
 
             right: 25px;
-
             bottom: 25px;
 
             width: 370px;
 
             max-width:
                 calc(100vw - 50px);
+
+            max-height: 70vh;
+
+            overflow-y: auto;
 
             background: white;
 
@@ -891,29 +752,19 @@ def show_recall_notifications():
 
         }}
 
-
         @keyframes recallPopupIn {{
 
             from {{
-
-                transform:
-                    translateY(40px);
-
+                transform: translateY(40px);
                 opacity: 0;
-
             }}
 
             to {{
-
-                transform:
-                    translateY(0);
-
+                transform: translateY(0);
                 opacity: 1;
-
             }}
 
         }}
-
 
         .recall-header {{
 
@@ -927,13 +778,11 @@ def show_recall_notifications():
 
         }}
 
-
         .recall-icon {{
 
             font-size: 27px;
 
         }}
-
 
         .recall-title {{
 
@@ -945,7 +794,6 @@ def show_recall_notifications():
 
         }}
 
-
         .recall-subtitle {{
 
             font-size: 12px;
@@ -955,7 +803,6 @@ def show_recall_notifications():
             margin-top: 2px;
 
         }}
-
 
         .recall-item {{
 
@@ -969,13 +816,11 @@ def show_recall_notifications():
 
         }}
 
-
         .overdue-item {{
 
             background: #fef2f2;
 
         }}
-
 
         .patient-name {{
 
@@ -987,7 +832,6 @@ def show_recall_notifications():
 
         }}
 
-
         .recall-type {{
 
             font-size: 12px;
@@ -997,7 +841,6 @@ def show_recall_notifications():
             margin-top: 2px;
 
         }}
-
 
         .recall-date {{
 
@@ -1011,13 +854,11 @@ def show_recall_notifications():
 
         }}
 
-
         .overdue-text {{
 
             color: #dc2626;
 
         }}
-
 
         .more-recalls {{
 
@@ -1062,24 +903,10 @@ def show_recall_notifications():
 
     """
 
-    # --------------------------------------------------------
-    # IMPORTANT:
-    # Render directly into Streamlit's page.
-    # Do NOT use components.html(height=0).
-    # --------------------------------------------------------
-
     st.markdown(
         notification_html,
         unsafe_allow_html=True
     )
-
-    # --------------------------------------------------------
-    # REMEMBER THAT THIS EXACT NOTIFICATION WAS SHOWN
-    # --------------------------------------------------------
-
-    st.session_state[
-        "recall_notification_shown"
-    ] = notification_key
 
 
 # ============================================================
@@ -1095,11 +922,10 @@ def get_dashboard_counts():
         """
         SELECT next_due
         FROM recalls
-        WHERE status
-            NOT IN (
-                'Completed',
-                'Scheduled'
-            )
+        WHERE status NOT IN (
+            'Completed',
+            'Scheduled'
+        )
         """
     )
 
@@ -1111,13 +937,9 @@ def get_dashboard_counts():
     due_week = 0
     due_month = 0
 
-    for (
-        next_due,
-    ) in recalls:
+    for (next_due,) in recalls:
 
-        days = days_until(
-            next_due
-        )
+        days = days_until(next_due)
 
         if days < 0:
 
@@ -1162,8 +984,6 @@ def initialize_session_state():
 
         "editing_recall": False,
 
-        "recall_notification_shown": None,
-
         "confirm_delete_patient": False
 
     }
@@ -1173,17 +993,6 @@ def initialize_session_state():
         if key not in st.session_state:
 
             st.session_state[key] = value
-
-
-# ============================================================
-# PAGE CONFIG
-# ============================================================
-
-st.set_page_config(
-    page_title="Dental Patient Tracker",
-    page_icon="🦷",
-    layout="wide"
-)
 
 
 # ============================================================
@@ -1214,7 +1023,6 @@ if not st.session_state.authenticated:
         "Sign in to access your own patient database."
     )
 
-
     login_tab, create_tab = st.tabs(
         [
             "Log In",
@@ -1222,10 +1030,9 @@ if not st.session_state.authenticated:
         ]
     )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # LOGIN
-    # ========================================================
+    # --------------------------------------------------------
 
     with login_tab:
 
@@ -1240,7 +1047,6 @@ if not st.session_state.authenticated:
             key="login_password"
         )
 
-
         if st.button(
             "Log In",
             type="primary",
@@ -1252,9 +1058,7 @@ if not st.session_state.authenticated:
                 password
             ):
 
-                st.session_state.authenticated = (
-                    True
-                )
+                st.session_state.authenticated = True
 
                 st.session_state.username = (
                     username.strip()
@@ -1264,13 +1068,7 @@ if not st.session_state.authenticated:
                     st.session_state.username
                 )
 
-                st.session_state.selected_patient_id = (
-                    None
-                )
-
-                st.session_state[
-                    "recall_notification_shown"
-                ] = None
+                st.session_state.selected_patient_id = None
 
                 st.rerun()
 
@@ -1280,10 +1078,9 @@ if not st.session_state.authenticated:
                     "Invalid username or password."
                 )
 
-
-    # ========================================================
+    # --------------------------------------------------------
     # CREATE ACCOUNT
-    # ========================================================
+    # --------------------------------------------------------
 
     with create_tab:
 
@@ -1303,7 +1100,6 @@ if not st.session_state.authenticated:
             type="password",
             key="confirm_password"
         )
-
 
         if st.button(
             "Create Account",
@@ -1332,16 +1128,13 @@ if not st.session_state.authenticated:
 
                 else:
 
-                    st.error(
-                        message
-                    )
-
+                    st.error(message)
 
     st.stop()
 
 
 # ============================================================
-# USER DATABASE
+# INITIALIZE USER DATABASE
 # ============================================================
 
 initialize_database_for_user(
@@ -1350,10 +1143,25 @@ initialize_database_for_user(
 
 
 # ============================================================
-# UPDATE RECALL STATUSES
+# APP TITLE
 # ============================================================
 
-update_recall_statuses()
+st.title(
+    "Dental Patient Tracker"
+)
+
+
+# ============================================================
+# RECALL NOTIFICATION
+#
+# IMPORTANT:
+# This is intentionally called EVERY time the app runs.
+#
+# There is NO session-state flag preventing it from showing
+# again.
+# ============================================================
+
+show_recall_notifications()
 
 
 # ============================================================
@@ -1366,7 +1174,6 @@ with st.sidebar:
         f"**Logged in as:** "
         f"{st.session_state.username}"
     )
-
 
     if st.button(
         "Log Out",
@@ -1387,27 +1194,7 @@ with st.sidebar:
 
         st.session_state.show_recall_form = False
 
-        st.session_state[
-            "recall_notification_shown"
-        ] = None
-
         st.rerun()
-
-
-# ============================================================
-# RECALL NOTIFICATION
-# ============================================================
-
-show_recall_notifications()
-
-
-# ============================================================
-# MAIN TITLE
-# ============================================================
-
-st.title(
-    "Dental Patient Tracker"
-)
 
 
 # ============================================================
@@ -1418,9 +1205,7 @@ overdue, due_week, due_month = (
     get_dashboard_counts()
 )
 
-
 col1, col2, col3 = st.columns(3)
-
 
 with col1:
 
@@ -1429,14 +1214,12 @@ with col1:
         overdue
     )
 
-
 with col2:
 
     st.metric(
         "Due this week",
         due_week
     )
-
 
 with col3:
 
@@ -1458,10 +1241,7 @@ search = st.text_input(
     placeholder="Enter internal patient ID..."
 )
 
-
-patients = get_patients(
-    search
-)
+patients = get_patients(search)
 
 
 # ============================================================
@@ -1478,7 +1258,6 @@ with st.expander(
         key="new_patient_identifier"
     )
 
-
     if st.button(
         "Save Patient",
         type="primary"
@@ -1488,13 +1267,11 @@ with st.expander(
             patient_identifier.strip()
         )
 
-
         if not patient_identifier:
 
             st.error(
                 "Enter a patient ID."
             )
-
 
         elif patient_exists(
             patient_identifier
@@ -1504,7 +1281,6 @@ with st.expander(
                 "That patient ID already exists."
             )
 
-
         else:
 
             conn = connect_db()
@@ -1513,9 +1289,7 @@ with st.expander(
             cursor.execute(
                 """
                 INSERT INTO patients
-                (
-                    patient_id
-                )
+                (patient_id)
                 VALUES (?)
                 """,
                 (
@@ -1528,7 +1302,6 @@ with st.expander(
             new_id = cursor.lastrowid
 
             conn.close()
-
 
             st.session_state.selected_patient_id = (
                 new_id
@@ -1551,7 +1324,7 @@ left, right = st.columns(
 
 
 # ============================================================
-# LEFT — PATIENT LIST
+# LEFT: PATIENT LIST
 # ============================================================
 
 with left:
@@ -1560,13 +1333,11 @@ with left:
         "Patients"
     )
 
-
     if not patients:
 
         st.info(
             "No patients found."
         )
-
 
     else:
 
@@ -1581,7 +1352,6 @@ with left:
                 ==
                 st.session_state.selected_patient_id
             )
-
 
             if st.button(
                 patient_identifier,
@@ -1616,9 +1386,7 @@ with left:
 
                 st.rerun()
 
-
     st.divider()
-
 
     if st.session_state.selected_patient_id:
 
@@ -1627,10 +1395,7 @@ with left:
             use_container_width=True
         ):
 
-            st.session_state.confirm_delete_patient = (
-                True
-            )
-
+            st.session_state.confirm_delete_patient = True
 
         if st.session_state.get(
             "confirm_delete_patient",
@@ -1642,11 +1407,9 @@ with left:
                 "their workflow data?"
             )
 
-
             confirm_col, cancel_col = (
                 st.columns(2)
             )
-
 
             with confirm_col:
 
@@ -1659,62 +1422,41 @@ with left:
                         st.session_state.selected_patient_id
                     )
 
-
                     conn = connect_db()
                     cursor = conn.cursor()
-
 
                     cursor.execute(
                         """
                         DELETE FROM treatment_needs
                         WHERE patient_id = ?
                         """,
-                        (
-                            patient_id,
-                        )
+                        (patient_id,)
                     )
-
 
                     cursor.execute(
                         """
                         DELETE FROM recalls
                         WHERE patient_id = ?
                         """,
-                        (
-                            patient_id,
-                        )
+                        (patient_id,)
                     )
-
 
                     cursor.execute(
                         """
                         DELETE FROM patients
                         WHERE id = ?
                         """,
-                        (
-                            patient_id,
-                        )
+                        (patient_id,)
                     )
-
 
                     conn.commit()
                     conn.close()
 
+                    st.session_state.selected_patient_id = None
 
-                    st.session_state.selected_patient_id = (
-                        None
-                    )
-
-                    st.session_state.confirm_delete_patient = (
-                        False
-                    )
-
-                    st.session_state[
-                        "recall_notification_shown"
-                    ] = None
+                    st.session_state.confirm_delete_patient = False
 
                     st.rerun()
-
 
             with cancel_col:
 
@@ -1722,15 +1464,13 @@ with left:
                     "Cancel"
                 ):
 
-                    st.session_state.confirm_delete_patient = (
-                        False
-                    )
+                    st.session_state.confirm_delete_patient = False
 
                     st.rerun()
 
 
 # ============================================================
-# RIGHT — PATIENT DETAILS
+# RIGHT: PATIENT DETAILS
 # ============================================================
 
 with right:
@@ -1739,13 +1479,11 @@ with right:
         st.session_state.selected_patient_id
     )
 
-
     if not selected_patient_id:
 
         st.info(
             "Select a patient to view details."
         )
-
 
     else:
 
@@ -1753,19 +1491,16 @@ with right:
             (
                 patient
                 for patient in patients
-                if patient[0]
-                == selected_patient_id
+                if patient[0] == selected_patient_id
             ),
             None
         )
-
 
         if selected_patient:
 
             patient_identifier = (
                 selected_patient[1]
             )
-
 
         else:
 
@@ -1787,25 +1522,22 @@ with right:
                 else "Unknown"
             )
 
-
         st.header(
             f"Patient {patient_identifier}"
         )
 
 
         # ====================================================
-        # RESTORATIVE NEEDS
+        # TREATMENT NEEDS
         # ====================================================
 
         st.subheader(
             "Restorative Needs"
         )
 
-
         treatments = get_treatments(
             selected_patient_id
         )
-
 
         if treatments:
 
@@ -1823,7 +1555,6 @@ with right:
                 ]
             )
 
-
             st.dataframe(
                 treatment_df.drop(
                     columns=["ID"]
@@ -1831,7 +1562,6 @@ with right:
                 use_container_width=True,
                 hide_index=True
             )
-
 
         else:
 
@@ -1847,21 +1577,22 @@ with right:
 
 
         selected_treatment = st.selectbox(
+
             "Select treatment",
 
             options=[
                 "None"
-            ]
-            +
-            treatment_ids,
+            ] + treatment_ids,
 
             format_func=lambda x: (
+
                 "None"
+
                 if x == "None"
+
                 else next(
                     (
-                        f"Tooth {row[1]} — "
-                        f"{row[2]}"
+                        f"Tooth {row[1]} — {row[2]}"
                         for row in treatments
                         if row[0] == x
                     ),
@@ -1885,17 +1616,11 @@ with right:
                 use_container_width=True
             ):
 
-                st.session_state.show_treatment_form = (
-                    True
-                )
+                st.session_state.show_treatment_form = True
 
-                st.session_state.editing_treatment = (
-                    False
-                )
+                st.session_state.editing_treatment = False
 
-                st.session_state.selected_treatment_id = (
-                    None
-                )
+                st.session_state.selected_treatment_id = None
 
                 st.rerun()
 
@@ -1911,13 +1636,9 @@ with right:
                 use_container_width=True
             ):
 
-                st.session_state.show_treatment_form = (
-                    True
-                )
+                st.session_state.show_treatment_form = True
 
-                st.session_state.editing_treatment = (
-                    True
-                )
+                st.session_state.editing_treatment = True
 
                 st.session_state.selected_treatment_id = (
                     selected_treatment
@@ -1945,17 +1666,13 @@ with right:
                     DELETE FROM treatment_needs
                     WHERE id = ?
                     """,
-                    (
-                        selected_treatment,
-                    )
+                    (selected_treatment,)
                 )
 
                 conn.commit()
                 conn.close()
 
-                st.session_state.selected_treatment_id = (
-                    None
-                )
+                st.session_state.selected_treatment_id = None
 
                 st.rerun()
 
@@ -1971,7 +1688,6 @@ with right:
             )
 
             existing = None
-
 
             if treatment_id:
 
@@ -1989,9 +1705,7 @@ with right:
                     FROM treatment_needs
                     WHERE id = ?
                     """,
-                    (
-                        treatment_id,
-                    )
+                    (treatment_id,)
                 )
 
                 existing = cursor.fetchone()
@@ -2056,32 +1770,25 @@ with right:
 
             priority = st.selectbox(
                 "Priority",
-
                 [
                     "High",
                     "Medium",
                     "Low"
                 ],
-
                 index=(
                     [
                         "High",
                         "Medium",
                         "Low"
-                    ].index(
-                        default_priority
-                    )
-
+                    ].index(default_priority)
                     if default_priority
                     in [
                         "High",
                         "Medium",
                         "Low"
                     ]
-
                     else 1
                 ),
-
                 key=f"treatment_priority_{treatment_id}"
             )
 
@@ -2098,18 +1805,14 @@ with right:
             status = st.selectbox(
                 "Status",
                 status_options,
-
                 index=(
                     status_options.index(
                         default_status
                     )
-
                     if default_status
                     in status_options
-
                     else 0
                 ),
-
                 key=f"treatment_status_{treatment_id}"
             )
 
@@ -2137,18 +1840,19 @@ with right:
                     conn = connect_db()
                     cursor = conn.cursor()
 
-
                     if treatment_id:
 
                         cursor.execute(
                             """
                             UPDATE treatment_needs
+
                             SET
                                 tooth = ?,
                                 treatment = ?,
                                 priority = ?,
                                 status = ?,
                                 notes = ?
+
                             WHERE id = ?
                             """,
                             (
@@ -2160,7 +1864,6 @@ with right:
                                 treatment_id
                             )
                         )
-
 
                     else:
 
@@ -2175,6 +1878,7 @@ with right:
                                 status,
                                 notes
                             )
+
                             VALUES (?, ?, ?, ?, ?, ?)
                             """,
                             (
@@ -2187,18 +1891,12 @@ with right:
                             )
                         )
 
-
                     conn.commit()
                     conn.close()
 
+                    st.session_state.show_treatment_form = False
 
-                    st.session_state.show_treatment_form = (
-                        False
-                    )
-
-                    st.session_state.selected_treatment_id = (
-                        None
-                    )
+                    st.session_state.selected_treatment_id = None
 
                     st.rerun()
 
@@ -2211,13 +1909,9 @@ with right:
                     use_container_width=True
                 ):
 
-                    st.session_state.show_treatment_form = (
-                        False
-                    )
+                    st.session_state.show_treatment_form = False
 
-                    st.session_state.selected_treatment_id = (
-                        None
-                    )
+                    st.session_state.selected_treatment_id = None
 
                     st.rerun()
 
@@ -2232,11 +1926,9 @@ with right:
             "Recall"
         )
 
-
         recalls = get_recalls(
             selected_patient_id
         )
-
 
         if recalls:
 
@@ -2245,9 +1937,7 @@ with right:
                     {
                         "ID": row[0],
                         "Recall Type": row[1] or "",
-                        "Interval": (
-                            f"{row[2]} months"
-                        ),
+                        "Interval": f"{row[2]} months",
                         "Last Visit": row[3] or "",
                         "Next Due": row[4] or "",
                         "Status": row[5] or "",
@@ -2257,7 +1947,6 @@ with right:
                 ]
             )
 
-
             st.dataframe(
                 recall_df.drop(
                     columns=["ID"]
@@ -2265,7 +1954,6 @@ with right:
                 use_container_width=True,
                 hide_index=True
             )
-
 
         else:
 
@@ -2281,21 +1969,22 @@ with right:
 
 
         selected_recall = st.selectbox(
+
             "Select recall",
 
             options=[
                 "None"
-            ]
-            +
-            recall_ids,
+            ] + recall_ids,
 
             format_func=lambda x: (
+
                 "None"
+
                 if x == "None"
+
                 else next(
                     (
-                        f"{row[1]} — "
-                        f"due {row[4]}"
+                        f"{row[1]} — due {row[4]}"
                         for row in recalls
                         if row[0] == x
                     ),
@@ -2319,13 +2008,9 @@ with right:
                 use_container_width=True
             ):
 
-                st.session_state.show_recall_form = (
-                    True
-                )
+                st.session_state.show_recall_form = True
 
-                st.session_state.selected_recall_id = (
-                    None
-                )
+                st.session_state.selected_recall_id = None
 
                 st.rerun()
 
@@ -2341,9 +2026,7 @@ with right:
                 use_container_width=True
             ):
 
-                st.session_state.show_recall_form = (
-                    True
-                )
+                st.session_state.show_recall_form = True
 
                 st.session_state.selected_recall_id = (
                     selected_recall
@@ -2371,21 +2054,13 @@ with right:
                     DELETE FROM recalls
                     WHERE id = ?
                     """,
-                    (
-                        selected_recall,
-                    )
+                    (selected_recall,)
                 )
 
                 conn.commit()
                 conn.close()
 
-                st.session_state.selected_recall_id = (
-                    None
-                )
-
-                st.session_state[
-                    "recall_notification_shown"
-                ] = None
+                st.session_state.selected_recall_id = None
 
                 st.rerun()
 
@@ -2402,7 +2077,6 @@ with right:
 
             existing = None
 
-
             if recall_id:
 
                 conn = connect_db()
@@ -2418,9 +2092,7 @@ with right:
                     FROM recalls
                     WHERE id = ?
                     """,
-                    (
-                        recall_id,
-                    )
+                    (recall_id,)
                 )
 
                 existing = cursor.fetchone()
@@ -2454,17 +2126,20 @@ with right:
                 else "Periodic Exam"
             )
 
+
             default_interval = (
                 int(existing[1])
                 if existing
                 else 6
             )
 
+
             default_last_visit = (
                 existing[2]
                 if existing
                 else date.today().isoformat()
             )
+
 
             default_status = (
                 existing[3]
@@ -2474,6 +2149,7 @@ with right:
 
 
             recall_type = st.selectbox(
+
                 "Recall Type",
 
                 recall_types,
@@ -2482,10 +2158,8 @@ with right:
                     recall_types.index(
                         default_type
                     )
-
                     if default_type
                     in recall_types
-
                     else 0
                 ),
 
@@ -2505,6 +2179,7 @@ with right:
 
 
             interval = st.selectbox(
+
                 "Interval (months)",
 
                 intervals,
@@ -2513,10 +2188,8 @@ with right:
                     intervals.index(
                         default_interval
                     )
-
                     if default_interval
                     in intervals
-
                     else 2
                 ),
 
@@ -2526,12 +2199,10 @@ with right:
 
             try:
 
-                default_date = (
-                    datetime.strptime(
-                        default_last_visit,
-                        "%Y-%m-%d"
-                    ).date()
-                )
+                default_date = datetime.strptime(
+                    default_last_visit,
+                    "%Y-%m-%d"
+                ).date()
 
             except (
                 ValueError,
@@ -2542,8 +2213,11 @@ with right:
 
 
             last_visit_date = st.date_input(
+
                 "Last Visit",
+
                 value=default_date,
+
                 key=f"recall_date_{recall_id}"
             )
 
@@ -2558,32 +2232,41 @@ with right:
             ]
 
 
-            manually_selected_status = (
-                st.selectbox(
-                    "Status",
-                    status_options,
+            manually_selected_status = st.selectbox(
 
-                    index=(
-                        status_options.index(
-                            default_status
-                        )
+                "Status",
 
-                        if default_status
-                        in status_options
+                status_options,
 
-                        else 0
-                    ),
+                index=(
+                    status_options.index(
+                        default_status
+                    )
+                    if default_status
+                    in status_options
+                    else 0
+                ),
 
-                    key=f"recall_status_{recall_id}"
-                )
+                key=f"recall_status_{recall_id}"
             )
 
 
+            # ------------------------------------------------
+            # CALCULATE DUE DATE
+            # ------------------------------------------------
+
             due_date = calculate_due_date(
+
                 last_visit_date.strftime(
                     "%Y-%m-%d"
                 ),
+
                 interval
+            )
+
+
+            calculated_status = (
+                manually_selected_status
             )
 
 
@@ -2592,7 +2275,6 @@ with right:
                 days = days_until(
                     due_date
                 )
-
 
                 if days < 0:
 
@@ -2612,6 +2294,9 @@ with right:
                         "Upcoming"
                     )
 
+                # ------------------------------------------------
+                # PRESERVE MANUAL TERMINAL STATUS
+                # ------------------------------------------------
 
                 if manually_selected_status in [
                     "Contacted",
@@ -2656,18 +2341,19 @@ with right:
                         conn = connect_db()
                         cursor = conn.cursor()
 
-
                         if recall_id:
 
                             cursor.execute(
                                 """
                                 UPDATE recalls
+
                                 SET
                                     recall_type = ?,
                                     interval_months = ?,
                                     last_visit = ?,
                                     next_due = ?,
                                     status = ?
+
                                 WHERE id = ?
                                 """,
                                 (
@@ -2682,7 +2368,6 @@ with right:
                                 )
                             )
 
-
                         else:
 
                             cursor.execute(
@@ -2696,6 +2381,7 @@ with right:
                                     next_due,
                                     status
                                 )
+
                                 VALUES (?, ?, ?, ?, ?, ?)
                                 """,
                                 (
@@ -2710,26 +2396,12 @@ with right:
                                 )
                             )
 
-
                         conn.commit()
                         conn.close()
 
+                        st.session_state.show_recall_form = False
 
-                        # Force notification check
-                        # after saving a recall.
-
-                        st.session_state[
-                            "recall_notification_shown"
-                        ] = None
-
-
-                        st.session_state.show_recall_form = (
-                            False
-                        )
-
-                        st.session_state.selected_recall_id = (
-                            None
-                        )
+                        st.session_state.selected_recall_id = None
 
                         st.rerun()
 
@@ -2742,12 +2414,8 @@ with right:
                     use_container_width=True
                 ):
 
-                    st.session_state.show_recall_form = (
-                        False
-                    )
+                    st.session_state.show_recall_form = False
 
-                    st.session_state.selected_recall_id = (
-                        None
-                    )
+                    st.session_state.selected_recall_id = None
 
                     st.rerun()
