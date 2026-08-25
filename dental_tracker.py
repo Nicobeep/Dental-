@@ -666,7 +666,7 @@ with right:
                 conn = connect_db()
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT tooth, treatment, urgency, status, notes
+                    SELECT tooth, treatment, , status, notes
                     FROM treatment_needs
                     WHERE id = ?
                 """, (treatment_id,))
@@ -680,7 +680,7 @@ with right:
 
             default_tooth = existing[0] if existing else ""
             default_treatment = existing[1] if existing else ""
-            default_urgency = existing[2] if existing else "Medium"
+            default_ = existing[2] if existing else "Medium"
             default_status = existing[3] if existing else "Planned"
             default_notes = existing[4] if existing else ""
 
@@ -696,11 +696,11 @@ with right:
                 key=f"treatment_name_{treatment_id}"
             )
 
-            urgency = st.selectbox(
-                "Urgency",
+             = st.selectbox(
+                "",
                 ["High", "Medium", "Low"],
                 index=(
-                    ["High", "Medium", "Low"].index(default_urgency)
+                    ["High", "Medium", "Low"].index(default_)
                     if default_urgency in ["High", "Medium", "Low"]
                     else 1
                 ),
