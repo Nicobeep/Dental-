@@ -696,7 +696,7 @@ with right:
                 key=f"treatment_name_{treatment_id}"
             )
 
-             = st.selectbox(
+            urgency = st.selectbox(
                 "",
                 ["High", "Medium", "Low"],
                 index=(
