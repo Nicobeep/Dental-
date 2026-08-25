@@ -546,334 +546,183 @@ def show_recall_notifications():
 
     total = len(overdue) + len(due_soon)
 
-    # --------------------------------------------------------
-    # TITLE
-    # --------------------------------------------------------
-
     if overdue and due_soon:
-
-        title = (
-            f"{total} Recall"
-            f"{'s' if total != 1 else ''} "
-            f"Need Attention"
-        )
-
+        title = f"{total} Recall{'s' if total != 1 else ''} Need Attention"
         icon = "🚨"
 
     elif overdue:
-
-        title = (
-            f"{len(overdue)} Overdue Recall"
-            f"{'s' if len(overdue) != 1 else ''}"
-        )
-
+        title = f"{len(overdue)} Overdue Recall{'s' if len(overdue) != 1 else ''}"
         icon = "🚨"
 
     else:
-
-        title = (
-            f"{len(due_soon)} Recall Due Soon"
-            f"{'s' if len(due_soon) != 1 else ''}"
-        )
-
+        title = f"{len(due_soon)} Recall Due Soon{'s' if len(due_soon) != 1 else ''}"
         icon = "🔔"
 
-    # --------------------------------------------------------
-    # RECALL ITEMS
-    # --------------------------------------------------------
+    items_html = ""
 
-    details = []
-
-    # --------------------------------------------------------
+    # ========================================================
     # OVERDUE
-    # --------------------------------------------------------
+    # ========================================================
 
     for item in overdue:
 
         if item["days"] == 1:
-
             timing = "1 day overdue"
-
         else:
+            timing = f"{item['days']} days overdue"
 
-            timing = (
-                f"{item['days']} days overdue"
-            )
+        items_html += f"""
+        <div class="recall-item overdue">
 
-        patient = html.escape(
-            str(item["patient"])
-        )
-
-        recall_type = html.escape(
-            str(item["type"])
-        )
-
-        details.append(
-            f"""
-            <div class="recall-item overdue-item">
-
-                <div class="patient-name">
-                    Patient {patient}
-                </div>
-
-                <div class="recall-type">
-                    {recall_type}
-                </div>
-
-                <div class="recall-date overdue-text">
-                    {timing}
-                </div>
-
+            <div class="patient">
+                Patient {item["patient"]}
             </div>
-            """
-        )
 
-    # --------------------------------------------------------
+            <div class="type">
+                {item["type"]}
+            </div>
+
+            <div class="date overdue-date">
+                {timing}
+            </div>
+
+        </div>
+        """
+
+    # ========================================================
     # DUE SOON
-    # --------------------------------------------------------
+    # ========================================================
 
     for item in due_soon:
 
         if item["days"] == 0:
-
             timing = "DUE TODAY"
 
         elif item["days"] == 1:
-
             timing = "Tomorrow"
 
         else:
+            timing = f"In {item['days']} days"
 
-            timing = (
-                f"In {item['days']} days"
-            )
+        items_html += f"""
+        <div class="recall-item">
 
-        patient = html.escape(
-            str(item["patient"])
-        )
-
-        recall_type = html.escape(
-            str(item["type"])
-        )
-
-        due = html.escape(
-            str(item["due"])
-        )
-
-        details.append(
-            f"""
-            <div class="recall-item">
-
-                <div class="patient-name">
-                    Patient {patient}
-                </div>
-
-                <div class="recall-type">
-                    {recall_type}
-                </div>
-
-                <div class="recall-date">
-                    Due {due} · {timing}
-                </div>
-
+            <div class="patient">
+                Patient {item["patient"]}
             </div>
-            """
-        )
 
-    # --------------------------------------------------------
-    # LIMIT DISPLAY
-    # --------------------------------------------------------
+            <div class="type">
+                {item["type"]}
+            </div>
 
-    display_items = details[:10]
+            <div class="date">
+                Due {item["due"]} · {timing}
+            </div>
 
-    details_html = "".join(
-        display_items
-    )
-
-    if total > 10:
-
-        remaining = total - 10
-
-        details_html += f"""
-        <div class="more-recalls">
-            + {remaining} more recall
-            {'s' if remaining != 1 else ''}
         </div>
         """
 
-    # --------------------------------------------------------
-    # POPUP HTML
-    # --------------------------------------------------------
+    # ========================================================
+    # POPUP
+    # ========================================================
 
-    notification_html = f"""
-
+    notification = f"""
     <style>
 
-        .recall-popup {{
+    .recall-popup {{
+        position: fixed;
+        right: 25px;
+        bottom: 25px;
 
-            position: fixed;
+        width: 370px;
+        max-width: calc(100vw - 50px);
 
-            right: 25px;
-            bottom: 25px;
+        background: white;
 
-            width: 370px;
+        border-radius: 14px;
 
-            max-width:
-                calc(100vw - 50px);
+        padding: 18px;
 
-            max-height: 70vh;
+        box-shadow:
+            0 8px 30px rgba(0,0,0,0.25);
 
-            overflow-y: auto;
+        border: 1px solid #dddddd;
 
-            background: white;
+        z-index: 999999;
 
-            border-radius: 14px;
+        font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            sans-serif;
+    }}
 
-            padding: 18px;
+    .recall-header {{
+        display: flex;
+        align-items: center;
 
-            box-shadow:
-                0 10px 35px
-                rgba(0, 0, 0, 0.25);
+        gap: 10px;
 
-            border:
-                1px solid #e5e7eb;
+        margin-bottom: 12px;
+    }}
 
-            z-index: 999999;
+    .recall-icon {{
+        font-size: 26px;
+    }}
 
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                sans-serif;
+    .recall-title {{
+        font-size: 17px;
+        font-weight: 700;
+    }}
 
-            animation:
-                recallPopupIn
-                0.35s ease-out;
+    .recall-subtitle {{
+        font-size: 12px;
+        color: #777777;
 
-        }}
+        margin-top: 2px;
+    }}
 
-        @keyframes recallPopupIn {{
+    .recall-item {{
+        padding: 10px;
 
-            from {{
-                transform: translateY(40px);
-                opacity: 0;
-            }}
+        margin-top: 7px;
 
-            to {{
-                transform: translateY(0);
-                opacity: 1;
-            }}
+        border-radius: 8px;
 
-        }}
+        background: #f5f7fa;
+    }}
 
-        .recall-header {{
+    .recall-item.overdue {{
+        background: #fff1f1;
+    }}
 
-            display: flex;
+    .patient {{
+        font-size: 13px;
+        font-weight: 700;
+    }}
 
-            align-items: center;
+    .type {{
+        font-size: 12px;
+        color: #555555;
 
-            gap: 10px;
+        margin-top: 2px;
+    }}
 
-            margin-bottom: 12px;
+    .date {{
+        font-size: 12px;
 
-        }}
+        color: #2563eb;
 
-        .recall-icon {{
+        font-weight: 600;
 
-            font-size: 27px;
+        margin-top: 4px;
+    }}
 
-        }}
-
-        .recall-title {{
-
-            font-size: 17px;
-
-            font-weight: 700;
-
-            color: #111827;
-
-        }}
-
-        .recall-subtitle {{
-
-            font-size: 12px;
-
-            color: #6b7280;
-
-            margin-top: 2px;
-
-        }}
-
-        .recall-item {{
-
-            padding: 10px;
-
-            margin-top: 7px;
-
-            background: #f8fafc;
-
-            border-radius: 9px;
-
-        }}
-
-        .overdue-item {{
-
-            background: #fef2f2;
-
-        }}
-
-        .patient-name {{
-
-            font-size: 13px;
-
-            font-weight: 700;
-
-            color: #111827;
-
-        }}
-
-        .recall-type {{
-
-            font-size: 12px;
-
-            color: #4b5563;
-
-            margin-top: 2px;
-
-        }}
-
-        .recall-date {{
-
-            font-size: 12px;
-
-            font-weight: 600;
-
-            color: #2563eb;
-
-            margin-top: 4px;
-
-        }}
-
-        .overdue-text {{
-
-            color: #dc2626;
-
-        }}
-
-        .more-recalls {{
-
-            text-align: center;
-
-            font-size: 12px;
-
-            color: #6b7280;
-
-            padding-top: 10px;
-
-        }}
+    .overdue-date {{
+        color: #dc2626;
+    }}
 
     </style>
-
 
     <div class="recall-popup">
 
@@ -897,17 +746,15 @@ def show_recall_notifications():
 
         </div>
 
-        {details_html}
+        {items_html}
 
     </div>
-
     """
 
     st.markdown(
-        notification_html,
+        notification,
         unsafe_allow_html=True
     )
-
 
 # ============================================================
 # DASHBOARD COUNTS
