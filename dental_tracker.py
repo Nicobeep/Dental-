@@ -3,20 +3,113 @@ import sqlite3
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 import pandas as pd
-
-DB_NAME = "dental_tracker.db"
-
+import hashlib
+import secrets
+import re
+from pathlib import Path
 
 # ============================================================
-# DATABASE
+# MULTI-USER DATABASE
 # ============================================================
+
+DATA_DIR = Path("databases")
+USERS_DB = Path("users.db")
+
+
+def connect_users_db():
+    return sqlite3.connect(USERS_DB)
+
+
+def user_db_path(username):
+    DATA_DIR.mkdir(exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", username.strip())
+    return DATA_DIR / f"{safe}.db"
+
 
 def connect_db():
-    return sqlite3.connect(DB_NAME)
+    username = st.session_state.get("username")
+    if not username:
+        raise RuntimeError("No user is logged in.")
+    return sqlite3.connect(user_db_path(username))
 
 
-def initialize_database():
-    conn = connect_db()
+def initialize_users_database():
+    conn = connect_users_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            salt TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def hash_password(password, salt=None):
+    salt = salt or secrets.token_hex(16)
+    password_hash = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("utf-8"),
+        salt.encode("utf-8"),
+        200_000
+    ).hex()
+    return password_hash, salt
+
+
+def verify_password(password, stored_hash, salt):
+    password_hash, _ = hash_password(password, salt)
+    return secrets.compare_digest(password_hash, stored_hash)
+
+
+def create_user(username, password):
+    username = username.strip()
+    if not username or not password:
+        return False, "Username and password are required."
+    if len(username) < 3:
+        return False, "Username must be at least 3 characters."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", username):
+        return False, "Username can only contain letters, numbers, _, -, and ."
+
+    conn = connect_users_db()
+    cursor = conn.cursor()
+    password_hash, salt = hash_password(password)
+
+    try:
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, salt) VALUES (?, ?, ?)",
+            (username, password_hash, salt)
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return False, "That username already exists."
+    conn.close()
+
+    initialize_database_for_user(username)
+    return True, "Account created."
+
+
+def authenticate_user(username, password):
+    username = username.strip()
+    conn = connect_users_db()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT username, password_hash, salt FROM users WHERE username = ?",
+        (username,)
+    )
+    user = cursor.fetchone()
+    conn.close()
+
+    return bool(user and verify_password(password, user[1], user[2]))
+
+
+def initialize_database_for_user(username):
+    conn = sqlite3.connect(user_db_path(username))
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -56,6 +149,10 @@ def initialize_database():
     conn.commit()
     conn.close()
 
+
+# ============================================================
+# DATABASE
+# ============================================================
 
 # ============================================================
 # DATE FUNCTIONS
@@ -205,10 +302,86 @@ st.set_page_config(
     layout="wide"
 )
 
-initialize_database()
+initialize_users_database()
 initialize_session_state()
 
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+# ============================================================
+# LOGIN
+# ============================================================
+
+if not st.session_state.authenticated:
+    st.title("Dental Patient Tracker")
+    st.caption("Sign in to access your own patient database.")
+
+    login_tab, create_tab = st.tabs(["Log In", "Create Account"])
+
+    with login_tab:
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input(
+            "Password",
+            type="password",
+            key="login_password"
+        )
+
+        if st.button("Log In", type="primary", use_container_width=True):
+            if authenticate_user(username, password):
+                st.session_state.authenticated = True
+                st.session_state.username = username.strip()
+                initialize_database_for_user(st.session_state.username)
+                st.session_state.selected_patient_id = None
+                st.rerun()
+            else:
+                st.error("Invalid username or password.")
+
+    with create_tab:
+        new_username = st.text_input(
+            "Choose a username",
+            key="create_username"
+        )
+        new_password = st.text_input(
+            "Choose a password",
+            type="password",
+            key="create_password"
+        )
+        confirm_password = st.text_input(
+            "Confirm password",
+            type="password",
+            key="confirm_password"
+        )
+
+        if st.button("Create Account", use_container_width=True):
+            if new_password != confirm_password:
+                st.error("Passwords do not match.")
+            else:
+                success, message = create_user(
+                    new_username, new_password
+                )
+                if success:
+                    st.success("Account created. You can now log in.")
+                else:
+                    st.error(message)
+
+    st.stop()
+
+initialize_database_for_user(st.session_state.username)
+
 st.title("Dental Patient Tracker")
+
+with st.sidebar:
+    st.write(f"**Logged in as:** {st.session_state.username}")
+    if st.button("Log Out", use_container_width=True):
+        st.session_state.authenticated = False
+        st.session_state.username = None
+        st.session_state.selected_patient_id = None
+        st.session_state.selected_treatment_id = None
+        st.session_state.selected_recall_id = None
+        st.session_state.show_treatment_form = False
+        st.session_state.show_recall_form = False
+        st.rerun()
+
 
 
 # ============================================================
